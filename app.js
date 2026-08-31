@@ -1,4 +1,5 @@
-/* Family DISC app. Scores computed from share codes. Copy from disc-copy.js. */
+/* Family DISC app. Scores computed from share codes. Copy from disc-copy.js.
+   Comparison math and family copy live in compare.js. Do not change scoring math. */
 const DIMS=["D","I","S","C"];
 const PREC={D:0,I:1,S:2,C:3};
 const PAIRS=[[12,24],[6,25],[1,26],[15,27]];
@@ -85,38 +86,20 @@ function profileName(p){
  if(pr)return pr.name;
  return "No single style";
 }
-function profileTag(p){
- const pr=profileOf(p);
- if(pr)return pr.tag;
- return "All four scores sit close together.";
-}
-function activeLetters(p){
- const r=p.result;
- if(r.shape==="primary")return [r.key];
- if(r.shape==="blend")return [...r.key].sort((a,b)=>r.N[b]-r.N[a]||PREC[a]-PREC[b]);
- return ranked(r).slice(0,2);
-}
 function firstSentence(t){
  const m=String(t).match(/^.+?[.](?=\s|$)/);
  return m?m[0]:t;
 }
-function asPerson(text,name){
- if(!text)return "";
- let t=String(text);
- t=t.replace(/\byou'll\b/g,name+" will");
- t=t.replace(/\bYou'll\b/g,name+" will");
- t=t.replace(/\bYou'd\b/g,name+" would");
- t=t.replace(/\byou'd\b/g,name+" would");
- t=t.replace(/\bYou're\b/g,name+" is");
- t=t.replace(/\byou're\b/g,name+" is");
- t=t.replace(/\bYou've\b/g,name+" has");
- t=t.replace(/\byou've\b/g,name+" has");
- t=t.replace(/\bYour\b/g,name+"'s");
- t=t.replace(/\byour\b/g,name+"'s");
- t=t.replace(/\bYou\b/g,name);
- t=t.replace(/\byou\b/g,name);
- return t;
+function fname(p){return firstName(p)}
+function snap(p){return personSnapshot(p)}
+function stagClass(kind, pole){
+ if(kind==="pace") return pole==="fast"?"stag fast":(pole==="slow"?"stag slow":"stag even");
+ return pole==="task"?"stag task":(pole==="people"?"stag people":"stag even");
 }
+function stags(S){
+ return `<span class="${stagClass("pace",S.paceW.pole)}">${esc(S.paceW.short)}</span><span class="${stagClass("pri",S.priW.pole)}">${esc(S.priW.short)}</span>`;
+}
+
 function nav(page){
  return `<header class="top">
   <a class="brand" href="#/">Family DISC</a>
@@ -185,24 +168,113 @@ function wheelSVG(people, opts){
   ${dots}</svg>`;
 }
 
-function clusterNote(){
- const groups={};
- FAMILY.forEach(p=>{
-  const k=p.result.shape==="balanced"?"mix":p.result.key;
-  (groups[k]=groups[k]||[]).push(p.name);
+function plotXY(S){
+ const x=8+(clamp100(50+S.pri/2)/100)*84;
+ const y=8+(clamp100(50-S.pace/2)/100)*84;
+ return {x,y};
+}
+function scatter2x2(people, opts){
+ const compact=opts&&opts.compact;
+ const snaps=people.map(p=>snap(p));
+ const pts=snaps.map((S,i)=>{
+  const xy=plotXY(S);
+  return {S,i,x:xy.x,y:xy.y,col:DIMHEX[S.order[0]]||"#5c574c"};
  });
- const sc=(groups.SC||[]).length, s=(groups.S||[]).length;
- const di=(groups.DI||[]).length, dc=(groups.DC||[]).length, mix=(groups.mix||[]).length;
- const steady=sc+s, drive=di+dc;
- return `<p>Nine people. <b>${steady} sit on the steady side</b> (S or SC). <b>${drive} bring drive</b> (DI or DC). ${mix} ${mix===1?"is":"are"} balanced across all four.</p>
-  <p class="small">${Object.keys(groups).sort().map(k=>`<b>${k}</b>: ${groups[k].join(", ")}`).join(". ")}.</p>`;
+ for(let i=0;i<pts.length;i++){
+  for(let j=0;j<i;j++){
+   const dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y;
+   if(Math.hypot(dx,dy)<7){
+    pts[i].x=Math.max(8, Math.min(92, pts[i].x+(i%2?5:-5)));
+    pts[i].y=Math.max(8, Math.min(92, pts[i].y+((i%3)-1)*5));
+   }
+  }
+ }
+ const dots=pts.map(pt=>`<button type="button" class="m2-dot" style="left:${pt.x.toFixed(1)}%;top:${pt.y.toFixed(1)}%" data-id="${esc(pt.S.p.id)}">
+   <span class="m2-pin" style="background:${pt.col}"></span>
+   <span class="m2-nm">${esc(pt.S.name)}</span>
+ </button>`).join("");
+ const label=(opts&&opts.label)||"Pace by priority";
+ return `<div class="map2x2 ${compact?"compact":""}" role="img" aria-label="${esc(label)}">
+  <div class="m2-plot">
+   <span class="m2-axis m2-n">Fast</span>
+   <span class="m2-axis m2-s">Slow</span>
+   <span class="m2-axis m2-w">People</span>
+   <span class="m2-axis m2-e">The work</span>
+   <span class="m2-cross-h"></span>
+   <span class="m2-cross-v"></span>
+   <span class="m2-q tl">fast · people</span>
+   <span class="m2-q tr">fast · work</span>
+   <span class="m2-q bl">slow · people</span>
+   <span class="m2-q br">slow · work</span>
+   ${dots}
+  </div>
+ </div>`;
+}
+
+function continuumHTML(left, right, items){
+ const close=items.length===2 && Math.abs(items[0].pos-items[1].pos)<8;
+ const dots=items.map((it,idx)=>{
+  const nudge=close?(idx===0?" nudge-up":" nudge-down"):"";
+  return `<span class="c-dot${nudge}" style="left:${clamp100(it.pos).toFixed(1)}%">
+    <span class="c-pin" style="background:${it.col||"#1c2438"}"></span>
+    <span class="c-nm">${esc(it.name)}</span>
+  </span>`;
+ }).join("");
+ return `<div class="continuum">
+  <div class="c-ends"><span>${esc(left)}</span><span>${esc(right)}</span></div>
+  <div class="c-track">${dots}</div>
+ </div>`;
+}
+
+function dualSliders(A, B, largerGap){
+ const colA=DIMHEX[A.order[0]], colB=DIMHEX[B.order[0]];
+ const paceNote=largerGap==="pace"?"Bigger gap: pace":(largerGap==="priority"?"":"Gaps about even");
+ const priNote=largerGap==="priority"?"Bigger gap: people vs the work":(largerGap==="pace"?"":"Gaps about even");
+ return `<div class="sliders">
+  <div class="slider-block">
+   <h3>Pace</h3>
+   ${continuumHTML("Patient", "Driven", [
+     {name:A.name, pos:A.pos.pace, col:colA},
+     {name:B.name, pos:B.pos.pace, col:colB}
+   ])}
+   <p class="gapnote">${esc(A.name)} ${esc(A.paceW.short)} · ${esc(B.name)} ${esc(B.paceW.short)}${paceNote?" · "+paceNote:""}</p>
+  </div>
+  <div class="slider-block">
+   <h3>Priority</h3>
+   ${continuumHTML("The people in the room", "The work", [
+     {name:A.name, pos:A.pos.priority, col:colA},
+     {name:B.name, pos:B.pos.priority, col:colB}
+   ])}
+   <p class="gapnote">${esc(A.name)} ${esc(A.priW.short)} · ${esc(B.name)} ${esc(B.priW.short)}${priNote?" · "+priNote:""}</p>
+  </div>
+ </div>`;
+}
+
+function continuaBlock(an){
+ const {A,B,topContinua}=an;
+ const skip=new Set(["pace","priority"]);
+ const extra=topContinua.filter(c=>!skip.has(c.id) && c.gap>=TINY_CONT);
+ const show=topContinua.filter(c=>c.always || extra.some(e=>e.id===c.id));
+ const colA=DIMHEX[A.order[0]], colB=DIMHEX[B.order[0]];
+ return show.map(c=>{
+  const tiny=c.gap<TINY_CONT?`<p class="gapnote">Small gap. Shared more than not.</p>`:`<p class="gapnote">Gap ${Math.round(c.gap)} points.</p>`;
+  return `<div class="slider-block">
+   ${continuumHTML(c.left, c.right, [
+     {name:A.name, pos:c.posA, col:colA},
+     {name:B.name, pos:c.posB, col:colB}
+   ])}
+   ${tiny}
+  </div>`;
+ }).join("");
 }
 
 function personCard(p, sel){
+  const S=snap(p);
   const note=p.note?`<div class="hint">${esc(p.note.split(".")[0])}.</div>`:"";
   return `<button class="pcard ${sel?"sel":""}" data-id="${p.id}" type="button">
     <span class="letters">${chips(p.result)}</span>
     <span class="meta"><span class="nm">${esc(p.name)}</span>
+    <span class="pn">${stags(S)}</span>
     <span class="pn">${esc(lettersLabel(p.result))} · ${esc(profileName(p))}</span>${note}</span>
   </button>`;
 }
@@ -217,7 +289,13 @@ function matrixHTML(){
     return `<tr><th class="nm">${esc(a.name.split(" ")[0])}</th>${cells}</tr>`;
   }).join("");
   return `<div class="matrixwrap"><table class="matrix"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
-  <p class="small">Tap a cell for that pair. Row is the first name on the page, column is the second. Both directions are on every pair page.</p>`;
+  <p class="small">Tap a cell for that pair. Row is the first name on the page, column is the second.</p>`;
+}
+
+function bindScatterClicks(root){
+  (root||app).querySelectorAll(".m2-dot[data-id]").forEach(btn=>{
+    btn.addEventListener("click",()=>{ location.hash="#/p/"+btn.getAttribute("data-id"); });
+  });
 }
 
 function renderHome(){
@@ -225,9 +303,15 @@ function renderHome(){
   app.innerHTML=`${nav("home")}
   <div class="wrap">
     <div class="hero">
-      <p class="eyebrow">Family comparison</p>
-      <h1>Everyone on one screen</h1>
-      <p class="tag">Tap a person for the full report. Pick two to see how they land on each other.</p>
+      <p class="eyebrow">Family reading</p>
+      <h1>Pace, and people vs the work</h1>
+      <p class="tag">Not the letter on the badge. Two sliders: how fast you move, and whether you protect the room or the plan. Tap anyone. Pick two to compare.</p>
+    </div>
+    <div class="card">
+      <h2>This house</h2>
+      ${scatter2x2(FAMILY,{label:"Family map: pace by priority", compact:true})}
+      <p class="small">Fast at the top, slow at the bottom. People to the left, the work to the right. One clearly fast person. A slow majority, split between the room and the plan.</p>
+      <p><a href="#/family">Open the family map</a></p>
     </div>
     <div class="card">
       <h2>Compare two people</h2>
@@ -241,16 +325,6 @@ function renderHome(){
     <div class="card">
       <h2>The family</h2>
       <div class="people" id="plist">${FAMILY.map(p=>personCard(p,picked.includes(p.id))).join("")}</div>
-    </div>
-    <div class="card">
-      <h2>Family map</h2>
-      ${wheelSVG(FAMILY,{label:"All nine people on the DISC map"})}
-      <p class="small">Direction is the style they lean toward. Distance from center is how strongly that lean won. Edge means one style ran the table. Center means the picks spread out.</p>
-      ${clusterNote()}
-    </div>
-    <div class="card">
-      <h2>All vs all</h2>
-      ${matrixHTML()}
     </div>
     <p class="footer">DISC is a behavioral style model. First names only. Not for hiring. Not a clinical instrument.</p>
   </div>`;
@@ -269,385 +343,207 @@ function renderHome(){
     if(picked.length===2){const [a,b]=picked;picked=[];compareOn=false;location.hash=`#/vs/${a}/${b}`;return;}
     renderHome();
   };
+  bindScatterClicks();
 }
 
 function methodFold(){
   return `<div class="card"><details class="method"><summary>How the scoring works</summary>
   <p class="small">D = ${esc(LEGEND.D)} · I = ${esc(LEGEND.I)} · S = ${esc(LEGEND.S)} · C = ${esc(LEGEND.C)}</p>
   <p class="small"><b>Method:</b> 28 forced-choice situations, scored most/least (+2 / -1) on the classic DISC method. Because every item forces a trade-off, the four scores are <b>relative to each other, not to other people</b>. Two people with opposite energy levels can produce the same profile if they rank the four the same way. There is no population norm behind these numbers. The optional intensity ratings are the opposite kind of measure (statements rated 1-5 with no trade-off), which is why they can say "how much" while the ranking says "which wins." Band cutoffs: Low below 36, Moderate 36-64, High 65 and up. A single style is named only when the top two scores are at least ${PRIMARY_GAP} points apart. Below that, the pair is the result. If all four sit within ${BALANCED_SPREAD} points, no style is named.</p>
+  <p class="small"><b>The two sliders:</b> Pace is (D+I) minus (S+C). Positive is fast. Priority is (D+C) minus (I+S). Positive is the work, negative is the people in the room. Near even means the net sits inside 20 points. Friction between two people is mostly the gap on those sliders, even when the primary letters match.</p>
   <p class="small"><b>How far to trust it:</b> treat this as a conversation starter rather than a measurement. Reliability here has been checked by simulation only.</p>
   </details>
   <p class="small" style="margin-top:10px"><b>Disclaimer:</b> a self-awareness and communication tool based on the DISC behavioral model. Not a clinical instrument. Not for hiring, promotion, or medical decisions.</p></div>`;
 }
 
-function renderPerson(id){
-  const p=byId(id); if(!p){location.hash="#/";return;}
+function originalReportFold(p){
   const r=p.result, pr=profileOf(p), dims=DIMS;
-  const dk=lettersLabel(r);
-  let hero;
-  if(r.shape==="primary"){
-    hero=`<div class="bigkey">${r.key}</div><h1>${esc(p.name)}</h1><p class="tag">${esc(pr.name)}. ${esc(pr.tag)}</p>`;
-  }else if(r.shape==="blend"){
-    hero=`<div class="bigkey">${dk}</div><h1>${esc(p.name)}</h1><p class="tag">${esc(pr.name)}. ${esc(pr.tag)}</p>`;
-  }else{
-    hero=`<div class="bigkey">mix</div><h1>${esc(p.name)}</h1><p class="tag">No single style stands out. All four scores land within ${r.spread} points.</p>`;
-  }
-  const note=p.note?`<p class="note">${esc(p.note)}</p>`:"";
-  const others=FAMILY.filter(x=>x.id!==p.id).map(x=>`<a href="#/vs/${p.id}/${x.id}">${esc(x.name)}</a>`).join("");
   const dimSecs=dims.map(d=>`<div class="dimhead"><span class="dot d${d}"></span>${d} · ${DIMNAMES[d]}: ${r.band[d]} (${r.N[d]})</div><p>${esc(DIMTEXT[d][r.band[d]])}</p>`).join("");
-  const opp=r.key==="DS"||r.key==="IC";
-  let body="";
+  let inner="";
   if(r.shape==="blend"&&pr){
-    body+=`<div class="card"><h2>Why two letters, not one</h2>
+    inner+=`<h3>Why two letters, not one</h3>
     <p>Together, ${[...r.key].join(" and ")} are the pair. A style only reaches 100 by taking every win, and an even two-style split tops out at 67 apiece. Two bars in the 60s is not a lukewarm result, it is the ceiling for a strong pair.</p>
-    <p>The top two are <b>${r.gap} point${r.gap===1?"":"s"}</b> apart, inside the margin where a retake can swap which comes first. The pair is the result. The order shown is how they landed this sitting.</p></div>`;
+    <p>The top two are <b>${r.gap} point${r.gap===1?"":"s"}</b> apart, inside the margin where a retake can swap which comes first. The pair is the result. The order shown is how they landed this sitting.</p>`;
   }
   if(r.shape==="balanced"){
-    body+=`<div class="card"><h2>What a flat result means</h2>
-    <p>The four scores sit close enough together that naming a type would be inventing a difference the answers do not contain. That is a real result, not a failure. It usually means this person genuinely shifts approach to fit the situation instead of running one default. Read the four dimension write-ups rather than looking for a label.</p></div>`;
+    inner+=`<h3>What a flat result means</h3>
+    <p>The four scores sit close enough together that naming a type would be inventing a difference the answers do not contain. That is a real result, not a failure. It usually means this person genuinely shifts approach to fit the situation instead of running one default. Read the four dimension write-ups rather than looking for a label.</p>`;
   }
   if(pr){
-    body+=`<div class="card"><h2>What this means</h2><p>${esc(pr.sum)}</p>
+    inner+=`<h3>${esc(pr.name)}</h3><p>${esc(pr.sum)}</p>
     <h3>Strengths</h3><ul>${pr.str.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
     <h3>Watch-outs</h3><ul>${pr.watch.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
     <h3>Motivated by</h3><p>${esc(pr.mot)}</p>
     <h3>Drained by</h3><p>${esc(pr.dr)}</p>
-    <h3>Under pressure</h3><p>${esc(pr.up)}</p></div>
-    <div class="card"><h2>Working with ${esc(p.name)}</h2>
+    <h3>Under pressure</h3><p>${esc(pr.up)}</p>
+    <h3>Working with ${esc(p.name)}</h3>
+    <p class="small">Original do and don't lists, written for workrooms. Translate them to the house.</p>
     <h3 style="color:var(--green)">Do</h3><ul>${pr.comm.do.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
-    <h3 style="color:var(--red)">Don't</h3><ul>${pr.comm.dont.map(s=>`<li>${esc(s)}</li>`).join("")}</ul></div>
-    <div class="card"><h2>${esc(p.name)}, next to each style</h2>
-    <p class="small">Four kinds of person they will deal with, and the move that makes each pairing work.</p>
-    ${dims.map(d=>`<div class="dimhead"><span class="dot d${d}"></span>With a ${d} · ${esc(PROFILES[d].name.replace(/^The /,"the "))}</div><p>${esc(pr.pair[d])}</p>`).join("")}</div>
-    <div class="card"><h2>When it turns into a fight</h2><p>${esc(pr.conflict)}</p></div>`;
+    <h3 style="color:var(--red)">Don't</h3><ul>${pr.comm.dont.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
+    <h3>${esc(p.name)}, next to each style</h3>
+    ${dims.map(d=>`<div class="dimhead"><span class="dot d${d}"></span>With a ${d} · ${esc(PROFILES[d].name.replace(/^The /,"the "))}</div><p>${esc(pr.pair[d])}</p>`).join("")}
+    <h3>When the temperature rises</h3><p>${esc(pr.conflict)}</p>`;
   }
-  body+=`<div class="card"><h2>Scores</h2>
-    ${dims.map(d=>barRow(d,r.N[d],r.seg[d],r.band[d])).join("")}
-    <p class="small">Ranked against themself: every pick one style wins, another loses, so the four always total about the same. A bar only reaches 100 by taking every single win. A strong two-style pair tops out in the 60s. Shaded meaning: Low / Moderate / High.</p></div>`;
-  if(p.intensity){
-    body+=`<div class="card"><h2>Intensity (nothing forced to lose)</h2>
-    ${dims.map(d=>intensityRow(d,p.intensity[d])).join("")}
-    <p class="small">From the extra ratings, where nothing had to lose: how much of each they report having, not compared to anyone else. Read the differences between the bars, not their heights.</p></div>`;
-  }
-  body+=`<div class="card"><h2>The four dimensions in ${esc(p.name)}</h2>${dimSecs}</div>`;
+  inner+=`<h3>The four dimensions in ${esc(p.name)}</h3>${dimSecs}`;
   if(r.unspoken){
-    body+=`<div class="card"><h2>Neither reached for nor ruled out</h2>
+    inner+=`<h3>Neither reached for nor ruled out</h3>
     <p>${esc(UNSPOKEN_TEXT[r.unspoken])}</p>
-    <p class="small">This describes the answer pattern, the ${DIMNAMES[r.unspoken]} options left untouched in both directions. It is not a prediction of crisis behavior.</p></div>`;
+    <p class="small">This describes the answer pattern, the ${DIMNAMES[r.unspoken]} options left untouched in both directions. It is not a prediction of crisis behavior.</p>`;
   }
+  return `<div class="card"><details class="orig"><summary>From the original report</summary>
+    <p class="small">Office-flavored source copy, kept for the profile names and the four-dimension write-ups. The lead above is the home reading.</p>
+    ${inner}
+  </details></div>`;
+}
+
+function renderPerson(id){
+  const p=byId(id); if(!p){location.hash="#/";return;}
+  const r=p.result, home=personHome(p), S=home.snapshot;
+  const note=p.note?`<p class="note">${esc(p.note)}</p>`:"";
+  const others=FAMILY.filter(x=>x.id!==p.id).map(x=>`<a href="#/vs/${p.id}/${x.id}">${esc(x.name)}</a>`).join("");
   app.innerHTML=`${nav("person")}
   <div class="wrap">
-    <div class="hero"><p class="eyebrow">${esc(p.name)} · DISC profile</p>${hero}${note}</div>
-    <div class="card"><h2>The DISC map</h2>
-      ${wheelSVG([p],{label:p.name+" on the DISC map"})}
-      <p class="small">Direction is the style they lean toward. Distance from center is how strongly that lean won.</p>
-      ${opp?`<p class="small"><b>The two strongest styles sit on opposite sides of the map,</b> so they pull the dot toward the middle. Read that as tension the map cannot draw as a direction. There is range across one whole axis, not a missing style.</p>`:""}
+    <div class="hero">
+      <p class="eyebrow">At home</p>
+      <div class="stagrow">${stags(S)}</div>
+      <h1>${esc(p.name)}</h1>
+      <p class="tag">${esc(lettersLabel(r))} · D ${r.N.D} · I ${r.N.I} · S ${r.N.S} · C ${r.N.C}</p>
+      ${note}
     </div>
-    ${body}
+    <div class="card">
+      <h2>At home</h2>
+      <p>${esc(home.lede)}</p>
+      <p>${esc(home.table)}</p>
+      <p>${esc(home.plan)}</p>
+      <p>${esc(home.pressure)}</p>
+    </div>
+    <div class="card">
+      <h2>On the family map</h2>
+      ${scatter2x2([p],{label:p.name+" on pace and priority"})}
+      <p class="small">Fast at the top, slow at the bottom. People to the left, the work to the right.</p>
+    </div>
+    <div class="card"><h2>Four scores</h2>
+      ${DIMS.map(d=>barRow(d,r.N[d],r.seg[d],r.band[d])).join("")}
+      <p class="small">Ranked against themself: every pick one style wins, another loses, so the four always total about the same. A bar only reaches 100 by taking every single win. A strong two-style pair tops out in the 60s.</p>
+    </div>
+    ${p.intensity?`<div class="card"><h2>Intensity (nothing forced to lose)</h2>
+      ${DIMS.map(d=>intensityRow(d,p.intensity[d])).join("")}
+      <p class="small">From the extra ratings, where nothing had to lose: how much of each they report having, not compared to anyone else.</p></div>`:""}
+    ${originalReportFold(p)}
     ${methodFold()}
     <div class="card noprint"><h2>Compare with ${esc(p.name)}</h2>
       <div class="linkrow">${others}</div>
-      <a class="btn wide" href="${esc(p.report)}" target="_blank" rel="noopener">Full report</a>
+      <a class="btn wide" href="${esc(p.report)}" target="_blank" rel="noopener">Full original report</a>
     </div>
     <p class="footer"><a href="#/">← Everyone</a></p>
   </div>`;
 }
 
-function pairTextFor(a,b){
-  const letters=activeLetters(b);
-  const extra=(b.result.shape==="blend"||b.result.shape==="balanced")?letters:letters.slice(0,1);
-  const chunks=[];
-  const ap=profileOf(a);
-  if(ap){
-    extra.forEach(L=>{if(ap.pair[L])chunks.push(ap.pair[L]);});
-  }else{
-    ranked(a.result).slice(0,2).forEach(La=>{
-      const pr=PROFILES[La];
-      extra.forEach(L=>{if(pr&&pr.pair[L])chunks.push(pr.pair[L]);});
-    });
-  }
-  const seen=new Set();
-  return chunks.filter(t=>seen.has(t)?false:seen.add(t));
-}
-
-function admireList(b){
-  const pr=profileOf(b);
-  if(pr)return pr.str;
-  return ranked(b.result).slice(0,2).map(d=>DIMTEXT[d][b.result.band[d]]);
-}
-function watchList(b){
-  const pr=profileOf(b);
-  if(pr)return pr.watch;
-  return ["Their mix. No single watch-out list, because no single style won."];
-}
-
-function clashPara(a,b){
-  const ap=profileOf(a), bp=profileOf(b);
-  const parts=[];
-  if(ap)parts.push(asPerson(firstSentence(ap.conflict), a.name));
-  if(bp){
-    parts.push(asPerson(firstSentence(bp.conflict), b.name));
-    parts.push(b.name+"'s listed watch-outs include "+bp.watch.slice(0,2).join(", and ").toLowerCase()+".");
-  }else{
-    parts.push(b.name+" has no single fight style. The four scores sit close enough that naming one would be inventing it.");
-  }
-  return parts.join(" ");
-}
-
-function weekMoves(a,b){
-  const out=[], seen=new Set();
-  const add=s=>{if(!s)return; const t=s.replace(/\s+/g," ").trim(); if(!t||seen.has(t)||out.length>=6)return; seen.add(t); out.push(t);};
-  const bp=profileOf(b);
-  if(bp){
-    add(a.name+" with "+b.name+": "+bp.comm.do[0]+".");
-    add("With "+b.name+", do not: "+bp.comm.dont[0]+".");
-    if(bp.comm.do[1]) add(a.name+": "+bp.comm.do[1]+".");
-    if(bp.comm.dont[1]) add("Skip this with "+b.name+": "+bp.comm.dont[1]+".");
-  }
-  pairTextFor(a,b).forEach(add);
-  if(bp&&out.length<6) add("If "+b.name+" is under pressure: "+asPerson(bp.up,b.name));
-  return out.slice(0,6);
-}
-
-function oppositeBlock(a,b){
-  const notes=[];
-  const copy="The two strongest styles sit on opposite sides of the map, so they pull toward the middle. Read that as tension the map cannot draw as a direction. There is range across one whole axis, not a missing style.";
-  [a,b].forEach(p=>{
-    if(p.result.key==="DS"||p.result.key==="IC"){
-      notes.push(`${p.name}'s own pair is ${p.result.key}, an opposite-axis blend. ${copy}`);
-    }
-  });
-  const aTop=ranked(a.result)[0], bTop=ranked(b.result)[0];
-  const cross=(aTop==="D"&&bTop==="S")||(aTop==="S"&&bTop==="D")||(aTop==="I"&&bTop==="C")||(aTop==="C"&&bTop==="I");
-  if(cross){
-    notes.push(`${a.name}'s top letter is ${aTop} and ${b.name}'s is ${bTop}. Those sit on opposite sides of the map (D opposite S, I opposite C). ${copy} Between two people, that same pull shows up as pace or focus friction, not as one of them being wrong.`);
-  }
-  const aLets=new Set(activeLetters(a)), bLets=new Set(activeLetters(b));
-  if((aLets.has("D")&&bLets.has("S"))||(aLets.has("S")&&bLets.has("D"))){
-    if(!cross) notes.push(`${a.name} and ${b.name} both carry D and S across the pairing (fast/task vs steady/people). ${copy}`);
-  }
-  if((aLets.has("I")&&bLets.has("C"))||(aLets.has("C")&&bLets.has("I"))){
-    if(!((aTop==="I"&&bTop==="C")||(aTop==="C"&&bTop==="I"))) notes.push(`${a.name} and ${b.name} both carry I and C across the pairing (people/pace vs task/precision). ${copy}`);
-  }
-  if(!notes.length)return "";
-  const uniq=[...new Set(notes)];
-  return `<div class="card"><h2>Opposite-axis tension</h2>${uniq.map(n=>`<p>${esc(n)}</p>`).join("")}</div>`;
-}
-
-function motDrain(a,b){
-  const ap=profileOf(a), bp=profileOf(b);
-  if(!ap&&!bp){
-    return `<p>Neither has a single profile, so there is no one fuel tank to compare. Use the four dimension write-ups on each person page.</p>`;
-  }
-  let html="";
-  if(ap) html+=`<p><b>${esc(a.name)} is motivated by</b> ${esc(ap.mot)} <b>Drained by</b> ${esc(ap.dr)}</p>`;
-  else html+=`<p><b>${esc(a.name)}</b> has no single fuel list. Scores sit within ${a.result.spread} points.</p>`;
-  if(bp) html+=`<p><b>${esc(b.name)} is motivated by</b> ${esc(bp.mot)} <b>Drained by</b> ${esc(bp.dr)}</p>`;
-  else html+=`<p><b>${esc(b.name)}</b> has no single fuel list. Scores sit within ${b.result.spread} points.</p>`;
-  if(ap&&bp){
-    const aDrive=/control|winning|targets|speed|new ventures|competition|authority|excellence|mastery/i.test(ap.mot);
-    const bSteady=/stability|trust|clear standards|quiet|harmony|belonging/i.test(bp.mot);
-    const bRush=/improvisation|spotlight|moving targets|rushed|sudden change|micromanagement|slow consensus|paperwork/i.test(bp.dr);
-    if(aDrive&&bRush){
-      html+=`<p class="small">${esc(a.name)}'s fuel (speed, targets, control) sits next to what drains ${esc(b.name)}. That is a mismatch, not a moral failure. Slow the delivery, keep the target.</p>`;
-    }else if(bSteady&&/sudden change|conflict|improvisation|spotlight/i.test(ap.dr)===false && /new|speed|winning|audience/i.test(ap.mot)){
-      html+=`<p class="small">${esc(b.name)} is fueled by stability and a clear standard. ${esc(a.name)} is fueled by motion. Name the shared target so the motion has a place to land.</p>`;
-    }else{
-      html+=`<p class="small">Read those two lists next to each other. Where one person's fuel is the other's drain, that is the weekly friction. Stay inside the canon: do the "Do" list for the other person, skip the "Don't."</p>`;
-    }
-  }
-  return html;
-}
-
-function commBlock(a,b){
-  const ap=profileOf(a), bp=profileOf(b);
-  let html=`<div class="two">`;
-  html+=`<div><h3>${esc(a.name)} needs to hear</h3>`;
-  if(ap) html+=`<ul>${ap.comm.do.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>`;
-  else html+=`<p class="small">No single do-list. Ask what they need this week, then wait.</p>`;
-  html+=`</div><div><h3>${esc(b.name)} tends to lead with</h3>`;
-  if(bp) html+=`<p>${esc(bp.tag)} ${esc(firstSentence(bp.sum))}</p><p class="small">Under pressure: ${esc(bp.up)}</p>`;
-  else html+=`<p class="small">They shift. Do not expect one opening move.</p>`;
-  html+=`</div></div>`;
-  if(ap&&bp){
-    html+=`<p class="small">${esc(a.name)} wants ${esc(ap.comm.do[0].charAt(0).toLowerCase()+ap.comm.do[0].slice(1))}. ${esc(b.name)}'s opening move is ${esc(bp.tag.toLowerCase())} That gap is the communication problem. Use ${esc(b.name)}'s do-list when you are the one talking, and ${esc(a.name)}'s do-list when you need them to hear you.</p>`;
-  }
-  return html;
-}
-
-function directedHTML(a,b, alt){
-  const bp=profileOf(b);
-  const admire=admireList(b);
-  const watch=watchList(b);
-  const pairBits=pairTextFor(a,b);
-  let interact="";
-  if(bp){
-    interact+=`<h3 style="color:var(--green)">Do (this is how ${esc(b.name)} actually hears you)</h3>
-      <ul>${bp.comm.do.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
-      <h3 style="color:var(--red)">Don't</h3>
-      <ul>${bp.comm.dont.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>`;
-  }else{
-    interact+=`<p>${esc(b.name)} has no single instruction card. Their mix is the point. Ask what they think, then wait.</p>`;
-  }
-  if(pairBits.length){
-    interact+=`<h3>From ${esc(a.name)}'s pairing notes</h3>`+pairBits.map(t=>`<p>${esc(t)}</p>`).join("");
-  }
-  return `<div class="card">
-    <div class="directed ${alt?"alt":""}">
-      <h2>${esc(a.name)} looking at ${esc(b.name)}</h2>
-      <p class="small">${esc(a.name)} is ${esc(lettersLabel(a.result))} · ${esc(profileName(a))}. ${esc(b.name)} is ${esc(lettersLabel(b.result))} · ${esc(profileName(b))}.</p>
-      <h3>You will admire</h3>
-      <ul>${admire.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
-      <h3>This will drive you nuts</h3>
-      <ul>${watch.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
-      <div class="callout warn"><p>${esc(clashPara(a,b))}</p></div>
-      <h3>How to interact</h3>
-      ${interact}
-    </div>
-  </div>`;
-}
+function paras(arr){return (arr||[]).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join("")}
 
 function renderPair(idA,idB){
   const a=byId(idA), b=byId(idB);
   if(!a||!b||a.id===b.id){location.hash="#/";return;}
-  const fightA=profileOf(a)?asPerson(profileOf(a).conflict,a.name):`${a.name} has no single fight paragraph. The scores are too close to name a type, so the fight style shifts with the room.`;
-  const fightB=profileOf(b)?asPerson(profileOf(b).conflict,b.name):`${b.name} has no single fight paragraph. The scores are too close to name a type, so the fight style shifts with the room.`;
-  const upA=profileOf(a)?asPerson(profileOf(a).up,a.name):`${a.name} has no single pressure move.`;
-  const upB=profileOf(b)?asPerson(profileOf(b).up,b.name):`${b.name} has no single pressure move.`;
-  const weekA=weekMoves(a,b), weekB=weekMoves(b,a);
+  const copy=pairCopy(a,b);
+  const an=copy.analysis;
   app.innerHTML=`${nav("pair")}
   <div class="wrap">
     <div class="hero">
       <p class="eyebrow">Pairing</p>
-      <h1>${esc(a.name)} and ${esc(b.name)}</h1>
-      <p class="tag">${chips(a.result)} ${esc(lettersLabel(a.result))} · ${esc(profileName(a))} &nbsp; with &nbsp; ${chips(b.result)} ${esc(lettersLabel(b.result))} · ${esc(profileName(b))}</p>
+      <h1>${esc(fname(a))} and ${esc(fname(b))}</h1>
+      <p class="tag">${stags(an.A)} &nbsp; with &nbsp; ${stags(an.B)}</p>
+      <p class="tag">${esc(copy.typeLabel)}</p>
     </div>
     <div class="card">
       <h2>Both on the map</h2>
-      ${wheelSVG([a,b],{label:a.name+" and "+b.name+" on the DISC map"})}
-      <p class="small">Two dots. Same wheel. If they sit far apart, the weekly work is translation. If they sit on top of each other, the weekly work is saying the quiet thing out loud.</p>
+      ${scatter2x2([a,b],{label:fname(a)+" and "+fname(b)+" on pace and priority"})}
+      <p class="small">Same two sliders as the family map. Distance is the weekly translation work. Sitting on top of each other means the leftover letter still needs a name.</p>
     </div>
     <div class="card">
-      <h2>Side by side scores</h2>
+      <h2>Pace and priority</h2>
+      <p>${esc(copy.lede)}</p>
+      ${dualSliders(an.A, an.B, an.largerGap)}
+    </div>
+    <div class="card">
+      <h2>Comparison continua</h2>
+      <p class="small">The four distinct lines with the largest gaps. Pace and people vs the work always show. Tiny leftover lines are skipped.</p>
+      ${continuaBlock(an)}
+    </div>
+    <div class="card">
+      <h2>Where you are similar</h2>
+      ${paras(copy.similar)}
+      <div class="callout"><p><b>Shared blind spot.</b> ${esc(copy.similarBlind)}</p></div>
+    </div>
+    <div class="card">
+      <h2>Where it rubs</h2>
+      ${paras(copy.rubs)}
+      <h3>What each brings</h3>
+      <p>${esc(copy.bringsA)}</p>
+      <p>${esc(copy.bringsB)}</p>
+      <h3>How this shows up at home</h3>
+      ${paras(copy.atHome)}
+    </div>
+    <div class="card">
+      <h2>How to talk, how to decide, how to spend time</h2>
+      <p>${esc(copy.talk)}</p>
+      <p>${esc(copy.decide)}</p>
+      <p>${esc(copy.spendTime)}</p>
+    </div>
+    <div class="card">
+      <h2>One tip each way</h2>
+      <div class="callout blue"><p><b>${esc(fname(a))} → ${esc(fname(b))}.</b> ${esc(copy.tipAB)}</p></div>
+      <div class="callout"><p><b>${esc(fname(b))} → ${esc(fname(a))}.</b> ${esc(copy.tipBA)}</p></div>
+    </div>
+    <div class="card">
+      <h2>Letter map and scores</h2>
+      ${wheelSVG([a,b],{label:fname(a)+" and "+fname(b)+" on the DISC map"})}
+      <p class="small">The letter wheel is the source scores. The two sliders above are what actually predict the week.</p>
       <div class="pairbars">
         <div class="minibars"><h3>${esc(a.name)}</h3>${DIMS.map(d=>barRow(d,a.result.N[d],a.result.seg[d],a.result.band[d])).join("")}</div>
         <div class="minibars"><h3>${esc(b.name)}</h3>${DIMS.map(d=>barRow(d,b.result.N[d],b.result.seg[d],b.result.band[d])).join("")}</div>
       </div>
     </div>
-    ${directedHTML(a,b,false)}
-    ${directedHTML(b,a,true)}
     <div class="card">
-      <h2>When you two fight</h2>
-      <p class="small">Both conflict paragraphs, named. Neither is the villain. The pattern is.</p>
-      <h3>${esc(a.name)}</h3><p>${esc(fightA)}</p>
-      <h3>${esc(b.name)}</h3><p>${esc(fightB)}</p>
-    </div>
-    <div class="card">
-      <h2>Under pressure</h2>
-      <h3>${esc(a.name)}</h3><p>${esc(upA)}</p>
-      <p class="small">${profileOf(a)?esc(b.name+" should, in that moment: "+profileOf(a).comm.do.join("; ")+"."):esc(b.name+" should ask what "+a.name+" needs, then wait.")}</p>
-      <h3>${esc(b.name)}</h3><p>${esc(upB)}</p>
-      <p class="small">${profileOf(b)?esc(a.name+" should, in that moment: "+profileOf(b).comm.do.join("; ")+"."):esc(a.name+" should ask what "+b.name+" needs, then wait.")}</p>
-    </div>
-    <div class="card">
-      <h2>Motivated and drained</h2>
-      ${motDrain(a,b)}
-    </div>
-    <div class="card">
-      <h2>Communication</h2>
-      <p class="small">What each needs to hear, versus how the other tends to show up.</p>
-      ${commBlock(a,b)}
-      <hr style="border:none;border-top:1px solid var(--line);margin:12px 0">
-      ${commBlock(b,a)}
-    </div>
-    ${oppositeBlock(a,b)}
-    <div class="card">
-      <h2>This week</h2>
-      <p class="small">Concrete moves for this pairing, taken from the do/don't lists and the pairing notes. Not generic advice.</p>
-      <h3>${esc(a.name)} → ${esc(b.name)}</h3>
-      <ul class="week">${weekA.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
-      <h3>${esc(b.name)} → ${esc(a.name)}</h3>
-      <ul class="week">${weekB.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
-    </div>
-    <div class="card">
-      <a class="btn wide sec" href="#/p/${a.id}">${esc(a.name)}'s report</a>
-      <a class="btn wide sec" href="#/p/${b.id}">${esc(b.name)}'s report</a>
-      <a class="btn wide" href="${esc(a.report)}" target="_blank" rel="noopener">Full report · ${esc(a.name)}</a>
-      <a class="btn wide" href="${esc(b.report)}" target="_blank" rel="noopener">Full report · ${esc(b.name)}</a>
+      <a class="btn wide sec" href="#/p/${a.id}">${esc(a.name)} at home</a>
+      <a class="btn wide sec" href="#/p/${b.id}">${esc(b.name)} at home</a>
     </div>
     <p class="footer"><a href="#/">← Everyone</a> · <a href="#/vs/${b.id}/${a.id}">Swap order</a></p>
   </div>`;
+  bindScatterClicks();
 }
 
-function driveCluster(){
-  return FAMILY.filter(p=>/D/.test(p.result.key)&&p.result.shape!=="balanced");
-}
-function steadyCluster(){
-  return FAMILY.filter(p=>p.result.key==="S"||p.result.key==="SC");
+function namesList(arr){
+  if(!arr.length) return "none";
+  return arr.map(s=>s.name).join(", ");
 }
 
 function renderFamily(){
-  const byKey={};
-  FAMILY.forEach(p=>{
-    const k=p.result.shape==="balanced"?"balanced":p.result.key;
-    (byKey[k]=byKey[k]||[]).push(p);
-  });
-  const shared=Object.keys(byKey).sort().map(k=>{
-    const list=byKey[k];
-    const title=k==="balanced"?"No single style":(PROFILES[k]?PROFILES[k].name+" ("+k+")":k);
-    return `<h3>${esc(title)}</h3><p>${list.map(p=>`<a href="#/p/${p.id}">${esc(p.name)}</a>`).join(", ")} · ${list.length===1?"the only one":list.length+" people"}.</p>
-      ${PROFILES[k]?`<p class="small">${esc(PROFILES[k].tag)} ${esc(firstSentence(PROFILES[k].conflict))}</p>`:`<p class="small">Read the four dimension write-ups rather than looking for a label.</p>`}`;
-  }).join("");
-  const singles=Object.keys(byKey).filter(k=>byKey[k].length===1).map(k=>byKey[k][0]);
-  const drive=driveCluster();
-  const steady=steadyCluster();
-  const mix=FAMILY.filter(p=>p.result.shape==="balanced");
-  const hardTalk=drive.map(p=>{
-    const pr=profileOf(p);
-    return `<p><b>${esc(p.name)}</b> (${esc(lettersLabel(p.result))}). ${esc(firstSentence(pr.conflict))} ${esc(pr.comm.do[0])}.</p>`;
-  }).join("");
-  const absorb=steady.map(p=>{
-    const pr=profileOf(p);
-    return `<p><b>${esc(p.name)}</b> (${esc(lettersLabel(p.result))}). ${esc(firstSentence(pr.conflict))} Watch-outs: ${esc(pr.watch[0].toLowerCase())}, ${esc(pr.watch[1].toLowerCase())}.</p>`;
-  }).join("");
+  const cl=familyClusters(FAMILY);
+  const house=[
+    "This house is a slow majority with one clearly fast person, and a split inside the slow group about what slow is for: the work, or the people in the room.",
+    "Slow and on the work: "+namesList(cl.slowTask)+". Slow and on the people: "+namesList(cl.slowPeople)+(cl.slowEven.length ? ", with "+namesList(cl.slowEven)+" nearby (slow, mixed on priority)" : "")+". Near the middle of both sliders: "+namesList(cl.center)+". Clearly fast: "+namesList(cl.fast)+".",
+    "What this house tends to do: plans get a runway. The fast wiring is often already down the road while everyone else is still checking who is coming. Inside the slow group, a holiday can stall for two different reasons at once. Someone wants it right. Someone wants everyone ok.",
+    "Group versus 1:1 is what people-priority looks like here (equal turns, the circle, the group chat). Buy-in versus already-moved is what a pace gap looks like when people-priority is in the mix. Those are examples of the two sliders, not a special story about two people. Every pair on this site is those sliders plus the leftover blend."
+  ];
   app.innerHTML=`${nav("family")}
   <div class="wrap">
     <div class="hero">
-      <p class="eyebrow">Family dynamics</p>
-      <h1>Who shares a pattern, who does not</h1>
-      <p class="tag">Grounded in the same report copy as the person pages. No invented psychology.</p>
+      <p class="eyebrow">Family map</p>
+      <h1>Everyone on two sliders</h1>
+      <p class="tag">Fast vs slow. The work vs the people in the room. Same map for every pairing.</p>
     </div>
     <div class="card">
-      <h2>Family map</h2>
-      ${wheelSVG(FAMILY,{label:"Family DISC map"})}
-      ${clusterNote()}
+      <h2>Pace × priority</h2>
+      ${scatter2x2(FAMILY,{label:"Family 2x2: pace by priority"})}
+      <p class="small">Tap a name for their page. Fast at the top. People to the left.</p>
     </div>
     <div class="card">
-      <h2>Who shares a profile</h2>
-      ${shared}
+      <h2>Clusters</h2>
+      ${house.slice(0,2).map(t=>`<p>${esc(t)}</p>`).join("")}
     </div>
     <div class="card">
-      <h2>Odd one out</h2>
-      ${singles.map(p=>`<p><b>${esc(p.name)}</b> is the only ${esc(lettersLabel(p.result))} (${esc(profileName(p))}). ${profileOf(p)?esc(profileOf(p).tag):"The four scores refused to name a type."}</p>`).join("")}
-      <p class="small">Alex is the only high I (71) and the only Trailblazer. Ashley is the only Architect, with D, S, and C all in the 40s. Elliana is the only flat map (spread ${mix[0]?mix[0].result.spread:7}). Colin and Kate share S, but Colin's second letter is C (57) and Kate's is I (40), so they are not the same person in a room.</p>
-    </div>
-    <div class="card">
-      <h2>Steady cluster (S / SC)</h2>
-      <div class="callout"><p>${steady.map(p=>esc(p.name)).join(", ")}. ${steady.length} of 9.</p></div>
-      <p>The Craftsman and the Anchor share a conflict move: it does not look like a fight from the outside. SC: fights look like doing it correctly, silently, while the disagreement calcifies. S: they absorb the first hit, smooth over the second, and keep score of neither, out loud. Inside, it stacks.</p>
-      ${absorb}
-    </div>
-    <div class="card">
-      <h2>Drive cluster (D / DI / DC)</h2>
-      <div class="callout warn"><p>${drive.map(p=>esc(p.name)).join(", ")||"None"}.</p></div>
-      <p>DI fights to win the room (volume up, charm on, scoreboard visible). DC wins fights on competence and loses people on temperature. Neither is trying to be cruel. Both will name the thing the steady cluster will not.</p>
-      ${hardTalk}
-    </div>
-    <div class="card">
-      <h2>Who to send into a hard conversation</h2>
-      <p>Send someone from the drive cluster when something has to be named in the room. ${drive.map(p=>esc(p.name)).join(" or ")} will escalate to settle it, or dismantle it on the facts. That is the D-side conflict copy.</p>
-      <p>Do not send the steady cluster to "handle it" and then treat their silence as done. ${steady.map(p=>esc(p.name.split(" ")[0])).join(", ")} will absorb it, comply on the surface, and keep doing it their way. The report already says the relationship you protect with silence is the one the silence erodes.</p>
-      ${mix.length?`<p>${esc(mix[0].name)} is the flexible middle. No default. Useful in the room if someone asks what they actually think, then waits.</p>`:""}
+      <h2>What this house tends to do</h2>
+      ${house.slice(2).map(t=>`<p>${esc(t)}</p>`).join("")}
     </div>
     <div class="card">
       <h2>All vs all</h2>
@@ -655,6 +551,7 @@ function renderFamily(){
     </div>
     <p class="footer"><a href="#/">← Everyone</a></p>
   </div>`;
+  bindScatterClicks();
 }
 
 function route(){
