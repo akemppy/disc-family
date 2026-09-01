@@ -488,7 +488,7 @@ function personReceipts(p, S){
   const n1 = F.familySize - 1;
 
   if (me.approx){
-    out.push("First, a flag: your answer sheet was rebuilt from a screenshot of your scores, so the question-level counts below are close reconstructions, not your literal picks.");
+    out.push("First, a flag: this answer sheet isn't a recorded sitting — see the note at the top of the page. The question-level counts below describe the reconstruction, not literal picks.");
   }
 
   /* polarity: never claimed / never rejected */

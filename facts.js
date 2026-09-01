@@ -34,7 +34,7 @@ function buildFacts(fam){
       lik.order = [...DIMS].sort((a,b)=>lik.avg[b]-lik.avg[a]);
     }
 
-    const approx = !!(p.note && /approximat|rebuilt|reconstructed/i.test(p.note));
+    const approx = !!(p.note && /approximat|rebuilt|reconstructed|derived/i.test(p.note));
     persons[p.id] = {
       id:p.id, name:first(p.name), fullName:p.name,
       N:p.result.N, order:p.result.order, shape:p.result.shape,
