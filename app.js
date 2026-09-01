@@ -69,17 +69,22 @@ function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"
 function byId(id){return FAMILY.find(p=>p.id===id)}
 function ranked(r){return r.order||[...DIMS].sort((a,b)=>r.N[b]-r.N[a]||PREC[a]-PREC[b])}
 function profileOf(p){const k=p.result.key;return k&&PROFILES[k]?PROFILES[k]:null}
+function shownLetters(r){
+ if(r.shape==="balanced")return [];
+ const ord=ranked(r);
+ const out=[ord[0]];
+ if(r.N[ord[1]]>=36) out.push(ord[1]);
+ return out;
+}
 function lettersLabel(r){
  if(r.shape==="balanced")return "mix";
- if(r.shape==="primary")return r.key;
- const dk=[...r.key].sort((a,b)=>r.N[b]-r.N[a]||PREC[a]-PREC[b]);
- return dk[0]+"+"+dk[1];
+ const vis=shownLetters(r);
+ if(vis.length===1)return vis[0];
+ return vis[0]+"+"+vis[1];
 }
 function chips(r){
  if(r.shape==="balanced")return `<span class="chip mix">mix</span>`;
- if(r.shape==="primary")return `<span class="chip ${r.key}">${r.key}</span>`;
- const dk=[...r.key].sort((a,b)=>r.N[b]-r.N[a]||PREC[a]-PREC[b]);
- return dk.map(d=>`<span class="chip ${d}">${d}</span>`).join("");
+ return shownLetters(r).map(d=>`<span class="chip ${d}">${d}</span>`).join("");
 }
 function profileName(p){
  const pr=profileOf(p);
@@ -197,15 +202,15 @@ function scatter2x2(people, opts){
  return `<div class="map2x2 ${compact?"compact":""}" role="img" aria-label="${esc(label)}">
   <div class="m2-plot">
    <span class="m2-axis m2-n">Fast</span>
-   <span class="m2-axis m2-s">Slow</span>
+   <span class="m2-axis m2-s">Patient</span>
    <span class="m2-axis m2-w">People</span>
    <span class="m2-axis m2-e">The work</span>
    <span class="m2-cross-h"></span>
    <span class="m2-cross-v"></span>
    <span class="m2-q tl">fast · people</span>
    <span class="m2-q tr">fast · work</span>
-   <span class="m2-q bl">slow · people</span>
-   <span class="m2-q br">slow · work</span>
+   <span class="m2-q bl">patient · people</span>
+   <span class="m2-q br">patient · work</span>
    ${dots}
   </div>
  </div>`;
@@ -310,7 +315,7 @@ function renderHome(){
     <div class="card">
       <h2>This house</h2>
       ${scatter2x2(FAMILY,{label:"Family map: pace by priority", compact:true})}
-      <p class="small">Fast at the top, slow at the bottom. People to the left, the work to the right. One clearly fast person. A slow majority, split between the room and the plan.</p>
+      <p class="small">Fast at the top, patient at the bottom. People to the left, the work to the right. One clearly fast person. A patient majority, split between the room and the plan.</p>
       <p><a href="#/family">Open the family map</a></p>
     </div>
     <div class="card">
@@ -396,11 +401,23 @@ function originalReportFold(p){
   </details></div>`;
 }
 
+function listBlock(items){
+  if(Array.isArray(items)&&items.length){
+    return `<ul>${items.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>`;
+  }
+  if(items) return `<p>${esc(items)}</p>`;
+  return "";
+}
+
 function renderPerson(id){
   const p=byId(id); if(!p){location.hash="#/";return;}
   const r=p.result, home=personHome(p), S=home.snapshot;
   const note=p.note?`<p class="note">${esc(p.note)}</p>`:"";
   const others=FAMILY.filter(x=>x.id!==p.id).map(x=>`<a href="#/vs/${p.id}/${x.id}">${esc(x.name)}</a>`).join("");
+  const letterParas=(home.letterParas||[]).map(lp=>`<div class="dimhead"><span class="dot d${lp.letter}"></span>${lp.letter} at home · ${esc(lp.band)}</div><p>${esc(lp.para)}</p>`).join("");
+  const stack=home.stack?`<p>${esc(home.stack)}</p>`:"";
+  const pred=(home.predictions&&home.predictions.length)?`<h3>Leans from the four scores</h3>${listBlock(home.predictions)}`:"";
+  const ptrs=(home.pointers&&home.pointers.length)?`<h3>Living with ${esc(home.name)}</h3>${listBlock(home.pointers)}`:"";
   app.innerHTML=`${nav("person")}
   <div class="wrap">
     <div class="hero">
@@ -413,14 +430,20 @@ function renderPerson(id){
     <div class="card">
       <h2>At home</h2>
       <p>${esc(home.lede)}</p>
+      <p class="small">${esc(home.caveat||"Typical, not a prediction of this Tuesday. A score is a lean, not a lock.")}</p>
+      <p>${esc(home.notThis)}</p>
+      ${stack}
+      ${letterParas}
       <p>${esc(home.table)}</p>
       <p>${esc(home.plan)}</p>
       <p>${esc(home.pressure)}</p>
+      ${pred}
+      ${ptrs}
     </div>
     <div class="card">
       <h2>On the family map</h2>
       ${scatter2x2([p],{label:p.name+" on pace and priority"})}
-      <p class="small">Fast at the top, slow at the bottom. People to the left, the work to the right.</p>
+      <p class="small">Fast at the top, patient at the bottom. People to the left, the work to the right.</p>
     </div>
     <div class="card"><h2>Four scores</h2>
       ${DIMS.map(d=>barRow(d,r.N[d],r.seg[d],r.band[d])).join("")}
@@ -446,6 +469,8 @@ function renderPair(idA,idB){
   if(!a||!b||a.id===b.id){location.hash="#/";return;}
   const copy=pairCopy(a,b);
   const an=copy.analysis;
+  const extraA=(copy.pointersA&&copy.pointersA.length)?`<h3>${esc(fname(a))} toward ${esc(fname(b))}</h3>${listBlock(copy.pointersA)}`:"";
+  const extraB=(copy.pointersB&&copy.pointersB.length)?`<h3>${esc(fname(b))} toward ${esc(fname(a))}</h3>${listBlock(copy.pointersB)}`:"";
   app.innerHTML=`${nav("pair")}
   <div class="wrap">
     <div class="hero">
@@ -455,19 +480,21 @@ function renderPair(idA,idB){
       <p class="tag">${esc(copy.typeLabel)}</p>
     </div>
     <div class="card">
-      <h2>Both on the map</h2>
-      ${scatter2x2([a,b],{label:fname(a)+" and "+fname(b)+" on pace and priority"})}
-      <p class="small">Same two sliders as the family map. Distance is the weekly translation work. Sitting on top of each other means the leftover letter still needs a name.</p>
-    </div>
-    <div class="card">
       <h2>Pace and priority</h2>
       <p>${esc(copy.lede)}</p>
       ${dualSliders(an.A, an.B, an.largerGap)}
+      <p class="small">${esc(copy.caveat||"Typical, not a prediction of this Tuesday. A score is a lean, not a lock.")}</p>
     </div>
     <div class="card">
       <h2>Comparison continua</h2>
-      <p class="small">The four distinct lines with the largest gaps. Pace and people vs the work always show. Tiny leftover lines are skipped.</p>
+      <p class="small">Scales first. Pace and people vs the work always show. Tiny leftover lines are skipped. A gap is a tendency, not a lock.</p>
       ${continuaBlock(an)}
+      ${paras(copy.scaleReads)}
+    </div>
+    <div class="card">
+      <h2>Both on the map</h2>
+      ${scatter2x2([a,b],{label:fname(a)+" and "+fname(b)+" on pace and priority"})}
+      <p class="small">Same two sliders as the family map. Distance is the weekly translation work. Sitting on top of each other means the leftover letter still needs a name.</p>
     </div>
     <div class="card">
       <h2>Where you are similar</h2>
@@ -482,17 +509,22 @@ function renderPair(idA,idB){
       <p>${esc(copy.bringsB)}</p>
       <h3>How this shows up at home</h3>
       ${paras(copy.atHome)}
+      ${(copy.predictions&&copy.predictions.length)?"<h3>Leans from leftover scores</h3>"+listBlock(copy.predictions):""}
     </div>
     <div class="card">
       <h2>How to talk, how to decide, how to spend time</h2>
-      <p>${esc(copy.talk)}</p>
-      <p>${esc(copy.decide)}</p>
-      <p>${esc(copy.spendTime)}</p>
+      <h3>How to talk</h3>
+      ${listBlock(copy.talk)}
+      <h3>How to decide</h3>
+      ${listBlock(copy.decide)}
+      <h3>How to spend time</h3>
+      ${listBlock(copy.spendTime)}
     </div>
     <div class="card">
       <h2>One tip each way</h2>
       <div class="callout blue"><p><b>${esc(fname(a))} → ${esc(fname(b))}.</b> ${esc(copy.tipAB)}</p></div>
       <div class="callout"><p><b>${esc(fname(b))} → ${esc(fname(a))}.</b> ${esc(copy.tipBA)}</p></div>
+      ${extraA}${extraB}
     </div>
     <div class="card">
       <h2>Letter map and scores</h2>
@@ -520,9 +552,9 @@ function namesList(arr){
 function renderFamily(){
   const cl=familyClusters(FAMILY);
   const house=[
-    "This house is a slow majority with one clearly fast person, and a split inside the slow group about what slow is for: the work, or the people in the room.",
-    "Slow and on the work: "+namesList(cl.slowTask)+". Slow and on the people: "+namesList(cl.slowPeople)+(cl.slowEven.length ? ", with "+namesList(cl.slowEven)+" nearby (slow, mixed on priority)" : "")+". Near the middle of both sliders: "+namesList(cl.center)+". Clearly fast: "+namesList(cl.fast)+".",
-    "What this house tends to do: plans get a runway. The fast wiring is often already down the road while everyone else is still checking who is coming. Inside the slow group, a holiday can stall for two different reasons at once. Someone wants it right. Someone wants everyone ok.",
+    "This house is a patient majority with one clearly fast person, and a split inside the patient group about what patience is for: the work, or the people in the room.",
+    "Patient and on the work: "+namesList(cl.slowTask)+". Patient and on the people: "+namesList(cl.slowPeople)+(cl.slowEven.length ? ", with "+namesList(cl.slowEven)+" nearby (patient, mixed on priority)" : "")+". Near the middle of both sliders: "+namesList(cl.center)+". Clearly fast: "+namesList(cl.fast)+".",
+    "What this house tends to do: plans get a runway. The fast wiring is often already down the road while everyone else is still checking who is coming. Inside the patient group, a holiday can stall for two different reasons at once. Someone wants it right. Someone wants everyone ok.",
     "Group versus 1:1 is what people-priority looks like here (equal turns, the circle, the group chat). Buy-in versus already-moved is what a pace gap looks like when people-priority is in the mix. Those are examples of the two sliders, not a special story about two people. Every pair on this site is those sliders plus the leftover blend."
   ];
   app.innerHTML=`${nav("family")}
@@ -530,7 +562,7 @@ function renderFamily(){
     <div class="hero">
       <p class="eyebrow">Family map</p>
       <h1>Everyone on two sliders</h1>
-      <p class="tag">Fast vs slow. The work vs the people in the room. Same map for every pairing.</p>
+      <p class="tag">Fast vs patient. The work vs the people in the room. Same map for every pairing.</p>
     </div>
     <div class="card">
       <h2>Pace × priority</h2>
