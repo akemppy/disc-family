@@ -409,15 +409,19 @@ function listBlock(items){
   return "";
 }
 
+function paras(arr){return (arr||[]).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join("")}
+
 function renderPerson(id){
   const p=byId(id); if(!p){location.hash="#/";return;}
   const r=p.result, home=personHome(p), S=home.snapshot;
   const note=p.note?`<p class="note">${esc(p.note)}</p>`:"";
   const others=FAMILY.filter(x=>x.id!==p.id).map(x=>`<a href="#/vs/${p.id}/${x.id}">${esc(x.name)}</a>`).join("");
-  const letterParas=(home.letterParas||[]).map(lp=>`<div class="dimhead"><span class="dot d${lp.letter}"></span>${lp.letter} at home · ${esc(lp.band)}</div><p>${esc(lp.para)}</p>`).join("");
   const stack=home.stack?`<p>${esc(home.stack)}</p>`:"";
-  const pred=(home.predictions&&home.predictions.length)?`<h3>Leans from the four scores</h3>${listBlock(home.predictions)}`:"";
   const ptrs=(home.pointers&&home.pointers.length)?`<h3>Living with ${esc(home.name)}</h3>${listBlock(home.pointers)}`:"";
+  const working=(home.working&&home.working.length)?`<h3>When it is working</h3>${paras(home.working)}`:"";
+  const scenes=(home.scenes&&home.scenes.length)?paras(home.scenes):"";
+  const hard=(home.hard&&home.hard.length)?`<h3>When it is hard</h3>${paras(home.hard)}`:"";
+  const letters=(home.letterParas&&home.letterParas.length)?`<h3>The letters</h3>${paras(home.letterParas)}`:"";
   app.innerHTML=`${nav("person")}
   <div class="wrap">
     <div class="hero">
@@ -430,14 +434,15 @@ function renderPerson(id){
     <div class="card">
       <h2>At home</h2>
       <p>${esc(home.lede)}</p>
-      <p class="small">${esc(home.caveat||"Typical, not a prediction of this Tuesday. A score is a lean, not a lock.")}</p>
-      <p>${esc(home.notThis)}</p>
+      <p class="small">${esc(home.caveat||"A reading of the scores, not a script for Tuesday.")}</p>
       ${stack}
-      ${letterParas}
+      ${working}
+      ${scenes}
       <p>${esc(home.table)}</p>
       <p>${esc(home.plan)}</p>
       <p>${esc(home.pressure)}</p>
-      ${pred}
+      ${hard}
+      ${letters}
       ${ptrs}
     </div>
     <div class="card">
@@ -462,8 +467,6 @@ function renderPerson(id){
   </div>`;
 }
 
-function paras(arr){return (arr||[]).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join("")}
-
 function renderPair(idA,idB){
   const a=byId(idA), b=byId(idB);
   if(!a||!b||a.id===b.id){location.hash="#/";return;}
@@ -483,11 +486,11 @@ function renderPair(idA,idB){
       <h2>Pace and priority</h2>
       <p>${esc(copy.lede)}</p>
       ${dualSliders(an.A, an.B, an.largerGap)}
-      <p class="small">${esc(copy.caveat||"Typical, not a prediction of this Tuesday. A score is a lean, not a lock.")}</p>
+      <p class="small">${esc(copy.caveat||"A reading of the scores, not a script for Tuesday.")}</p>
     </div>
     <div class="card">
       <h2>Comparison continua</h2>
-      <p class="small">Scales first. Pace and people vs the work always show. Tiny leftover lines are skipped. A gap is a tendency, not a lock.</p>
+      <p class="small">Scales first. Pace and people vs the work always show. Tiny leftover lines are skipped.</p>
       ${continuaBlock(an)}
       ${paras(copy.scaleReads)}
     </div>
@@ -501,6 +504,10 @@ function renderPair(idA,idB){
       ${paras(copy.similar)}
       <div class="callout"><p><b>Shared blind spot.</b> ${esc(copy.similarBlind)}</p></div>
     </div>
+    ${(copy.working&&copy.working.length)?`<div class="card">
+      <h2>When you two work</h2>
+      ${paras(copy.working)}
+    </div>`:""}
     <div class="card">
       <h2>Where it rubs</h2>
       ${paras(copy.rubs)}
@@ -509,7 +516,7 @@ function renderPair(idA,idB){
       <p>${esc(copy.bringsB)}</p>
       <h3>How this shows up at home</h3>
       ${paras(copy.atHome)}
-      ${(copy.predictions&&copy.predictions.length)?"<h3>Leans from leftover scores</h3>"+listBlock(copy.predictions):""}
+      
     </div>
     <div class="card">
       <h2>How to talk, how to decide, how to spend time</h2>
@@ -555,7 +562,8 @@ function renderFamily(){
     "This house is a patient majority with one clearly fast person, and a split inside the patient group about what patience is for: the work, or the people in the room.",
     "Patient and on the work: "+namesList(cl.slowTask)+". Patient and on the people: "+namesList(cl.slowPeople)+(cl.slowEven.length ? ", with "+namesList(cl.slowEven)+" nearby (patient, mixed on priority)" : "")+". Near the middle of both sliders: "+namesList(cl.center)+". Clearly fast: "+namesList(cl.fast)+".",
     "What this house tends to do: plans get a runway. The fast wiring is often already down the road while everyone else is still checking who is coming. Inside the patient group, a holiday can stall for two different reasons at once. Someone wants it right. Someone wants everyone ok.",
-    "Group versus 1:1 is what people-priority looks like here (equal turns, the circle, the group chat). Buy-in versus already-moved is what a pace gap looks like when people-priority is in the mix. Those are examples of the two sliders, not a special story about two people. Every pair on this site is those sliders plus the leftover blend."
+    "The gift in this house is that it gets both a starter and a runway. Fast wiring can name a night. Patient wiring can hold the room and check the plan. The stall is real. So is the range.",
+    "A pace gap here looks like already decided versus buy-in. A priority gap looks like the work versus who is in the room. Every pair on this site is those sliders plus the leftover blend."
   ];
   app.innerHTML=`${nav("family")}
   <div class="wrap">
