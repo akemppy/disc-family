@@ -1,5 +1,5 @@
-/* Family DISC app. Scores computed from share codes. Copy from disc-copy.js.
-   Comparison math and family copy live in compare.js. Do not change scoring math. */
+/* Family DISC app. Scores computed from share codes. Report copy from disc-copy.js.
+   Measurement in facts.js, reading in compare.js. Do not change scoring math. */
 const DIMS=["D","I","S","C"];
 const PREC={D:0,I:1,S:2,C:3};
 const PAIRS=[[12,24],[6,25],[1,26],[15,27]];
@@ -11,6 +11,7 @@ const CARE_MS=3000;
 const CARE_TOTAL=150000;
 const DIMHEX={D:"#d94f3d",I:"#e8a13c",S:"#43a06b",C:"#4169d9"};
 const WHEEL_ANG={D:135,I:45,S:315,C:225};
+const FAM_DOT="#9a9280";
 
 function median(a){const s=[...a].sort((x,y)=>x-y);const m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2}
 function segOf(n){return n<=14?1:n<=28?2:n<=42?3:n<=57?4:n<=71?5:n<=85?6:7}
@@ -47,6 +48,10 @@ function likertSummary(v){
  const m={D:0,I:0,S:0,C:0};v.forEach((x,i)=>m[DIMS[i%4]]+=x);
  DIMS.forEach(d=>m[d]=Math.round(m[d]/6*10)/10);
  return m}
+function likertVals(likert,d){
+ const off=PREC[d];
+ return likert.split("").map(Number).filter((_,i)=>i%4===off);
+}
 
 function decode(code){
  const most=[],least=[];
@@ -60,6 +65,8 @@ const FAMILY=PEOPLE.map(p=>{
  const intensity=p.likert?likertSummary(p.likert.split("").map(Number)):null;
  return Object.assign({},p,{result,intensity,most,least});
 });
+const FACTS=buildFacts(FAMILY);
+if(typeof window!=="undefined")window.FACTS=FACTS;
 
 const app=document.getElementById("app");
 let compareOn=false;
@@ -91,10 +98,6 @@ function profileName(p){
  if(pr)return pr.name;
  return "No single style";
 }
-function firstSentence(t){
- const m=String(t).match(/^.+?[.](?=\s|$)/);
- return m?m[0]:t;
-}
 function fname(p){return firstName(p)}
 function snap(p){return personSnapshot(p)}
 function stagClass(kind, pole){
@@ -104,6 +107,10 @@ function stagClass(kind, pole){
 function stags(S){
  return `<span class="${stagClass("pace",S.paceW.pole)}">${esc(S.paceW.short)}</span><span class="${stagClass("pri",S.priW.pole)}">${esc(S.priW.short)}</span>`;
 }
+function ordinalStr(n){
+ const s=["th","st","nd","rd"],v=n%100;
+ return n+(s[(v-20)%10]||s[v]||s[0]);
+}
 
 function nav(page){
  return `<header class="top">
@@ -111,8 +118,12 @@ function nav(page){
   <nav>
     <a href="#/" class="${page==="home"?"on":""}">Home</a>
     <a href="#/family" class="${page==="family"?"on":""}">Family</a>
+    <a href="#/method" class="${page==="method"?"on":""}">Method</a>
   </nav>
  </header>`;
+}
+function footNote(extra){
+ return `<p class="footer">${extra||""}Drawn from one sitting of a DISC-style questionnaire — a strong pattern, honestly read, not a cage. <a href="#/method">How the numbers work</a>. Not for hiring; not a clinical instrument.</p>`;
 }
 
 function barRow(d,n,segv,bandv){
@@ -121,11 +132,12 @@ function barRow(d,n,segv,bandv){
   <div class="track"><div class="fill c${d}-bg" style="width:${pct}%">${n}</div></div>
   <div class="band">${bandv} · seg ${segv}</div></div>`;
 }
-function intensityRow(d,v){
+function intensityRow(d,v,vals){
  const pct=Math.max(Math.round((v-1)/4*100),8);
+ const detail=vals?`${vals.join(" · ")}`:"of 5";
  return `<div class="bar"><div class="lbl"><span class="dot d${d}"></span>${d} · ${DIMNAMES[d]}</div>
   <div class="track"><div class="fill c${d}-bg" style="width:${pct}%">${v.toFixed(1)}</div></div>
-  <div class="band">of 5</div></div>`;
+  <div class="band">${detail}</div></div>`;
 }
 
 function wheelSVG(people, opts){
@@ -204,13 +216,13 @@ function scatter2x2(people, opts){
    <span class="m2-axis m2-n">Fast</span>
    <span class="m2-axis m2-s">Patient</span>
    <span class="m2-axis m2-w">People</span>
-   <span class="m2-axis m2-e">The work</span>
+   <span class="m2-axis m2-e">The plan</span>
    <span class="m2-cross-h"></span>
    <span class="m2-cross-v"></span>
    <span class="m2-q tl">fast · people</span>
-   <span class="m2-q tr">fast · work</span>
+   <span class="m2-q tr">fast · plan</span>
    <span class="m2-q bl">patient · people</span>
-   <span class="m2-q br">patient · work</span>
+   <span class="m2-q br">patient · plan</span>
    ${dots}
   </div>
  </div>`;
@@ -231,46 +243,68 @@ function continuumHTML(left, right, items){
  </div>`;
 }
 
-function dualSliders(A, B, largerGap){
+/* All five scales for a pair, each annotated with its computed read. */
+function pairSliders(an, reads){
+ const A=an.A,B=an.B;
  const colA=DIMHEX[A.order[0]], colB=DIMHEX[B.order[0]];
- const paceNote=largerGap==="pace"?"Bigger gap: pace":(largerGap==="priority"?"":"Gaps about even");
- const priNote=largerGap==="priority"?"Bigger gap: people vs the work":(largerGap==="pace"?"":"Gaps about even");
- return `<div class="sliders">
-  <div class="slider-block">
-   <h3>Pace</h3>
-   ${continuumHTML("Patient", "Driven", [
-     {name:A.name, pos:A.pos.pace, col:colA},
-     {name:B.name, pos:B.pos.pace, col:colB}
-   ])}
-   <p class="gapnote">${esc(A.name)} ${esc(A.paceW.short)} · ${esc(B.name)} ${esc(B.paceW.short)}${paceNote?" · "+paceNote:""}</p>
-  </div>
-  <div class="slider-block">
-   <h3>Priority</h3>
-   ${continuumHTML("The people in the room", "The work", [
-     {name:A.name, pos:A.pos.priority, col:colA},
-     {name:B.name, pos:B.pos.priority, col:colB}
-   ])}
-   <p class="gapnote">${esc(A.name)} ${esc(A.priW.short)} · ${esc(B.name)} ${esc(B.priW.short)}${priNote?" · "+priNote:""}</p>
-  </div>
- </div>`;
-}
-
-function continuaBlock(an){
- const {A,B,topContinua}=an;
- const skip=new Set(["pace","priority"]);
- const extra=topContinua.filter(c=>!skip.has(c.id) && c.gap>=TINY_CONT);
- const show=topContinua.filter(c=>c.always || extra.some(e=>e.id===c.id));
- const colA=DIMHEX[A.order[0]], colB=DIMHEX[B.order[0]];
- return show.map(c=>{
-  const tiny=c.gap<TINY_CONT?`<p class="gapnote">Small gap. Shared more than not.</p>`:`<p class="gapnote">Gap ${Math.round(c.gap)} points.</p>`;
+ return an.continua.map((c,i)=>{
   return `<div class="slider-block">
    ${continuumHTML(c.left, c.right, [
      {name:A.name, pos:c.posA, col:colA},
      {name:B.name, pos:c.posB, col:colB}
    ])}
-   ${tiny}
+   <p class="gapnote">${esc(reads[i]||"")}</p>
   </div>`;
  }).join("");
+}
+
+/* Person against the family average, all five scales. */
+function personSliders(p){
+ const S=snap(p);
+ const avgNets=netsOf(FACTS.avg);
+ const avgPos={
+  pace:clamp100(50+avgNets.pace/2),
+  priority:clamp100(50+avgNets.pri/2),
+  frank:clamp100(50+(FACTS.avg.D-FACTS.avg.S)/2),
+  outgoing:clamp100(50+(FACTS.avg.I-FACTS.avg.C)/2),
+  daring:clamp100(50+(FACTS.avg.D-FACTS.avg.C)/2)
+ };
+ const col=DIMHEX[S.order[0]];
+ return CONTINUA_META.map(m=>{
+  const gap=Math.round(Math.abs(S.pos[m.id]-avgPos[m.id]));
+  const note=gap<8?"Right at the family's center here.":(S.pos[m.id]<avgPos[m.id]
+    ? `${gap} points toward ${m.left.toLowerCase()} of the family average.`
+    : `${gap} points toward ${m.right.toLowerCase()} of the family average.`);
+  return `<div class="slider-block">
+   ${continuumHTML(m.left, m.right, [
+     {name:S.name, pos:S.pos[m.id], col:col},
+     {name:"Family", pos:avgPos[m.id], col:FAM_DOT}
+   ])}
+   <p class="gapnote">${esc(note)}</p>
+  </div>`;
+ }).join("");
+}
+
+const STRIP_LABEL={
+ twin:"answered identically — same “most,” same “least”",
+ match:"same “most me” pick",
+ anti:"same “least me” pick",
+ clash:"one claimed what the other rejected",
+ quiet:"no overlap"
+};
+function stripHTML(strip){
+ if(!strip)return "";
+ const counts={twin:0,match:0,anti:0,clash:0,quiet:0};
+ strip.forEach(s=>counts[s]++);
+ const cells=strip.map((s,i)=>`<span class="sc ${s}" title="Q${i+1}: ${esc(STRIP_LABEL[s])}"></span>`).join("");
+ const leg=[
+  counts.twin?`<span><span class="sc twin"></span> identical ×${counts.twin}</span>`:"",
+  counts.match?`<span><span class="sc match"></span> same “most” ×${counts.match}</span>`:"",
+  counts.anti?`<span><span class="sc anti"></span> same “least” ×${counts.anti}</span>`:"",
+  counts.clash?`<span><span class="sc clash"></span> crossed ×${counts.clash}</span>`:"",
+  counts.quiet?`<span><span class="sc quiet"></span> no overlap ×${counts.quiet}</span>`:""
+ ].filter(Boolean).join("");
+ return `<div class="stripwrap"><div class="strip">${cells}</div><div class="striplegend">${leg}</div></div>`;
 }
 
 function personCard(p, sel){
@@ -294,7 +328,7 @@ function matrixHTML(){
     return `<tr><th class="nm">${esc(a.name.split(" ")[0])}</th>${cells}</tr>`;
   }).join("");
   return `<div class="matrixwrap"><table class="matrix"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
-  <p class="small">Tap a cell for that pair. Row is the first name on the page, column is the second.</p>`;
+  <p class="small">Tap a cell to open that pair.</p>`;
 }
 
 function bindScatterClicks(root){
@@ -305,18 +339,24 @@ function bindScatterClicks(root){
 
 function renderHome(){
   const opts=FAMILY.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
+  const cl=familyClusters(FAMILY);
+  const mapLine=[
+    cl.fast.length?`${cl.fast.map(s=>s.name).join(" and ")} up top, moving fast`:"",
+    cl.slow.length?`a patient majority below`:"",
+    cl.center.length?`${cl.center.map(s=>s.name).join(" and ")} near the middle, flexing by the room`:""
+  ].filter(Boolean).join(" · ");
   app.innerHTML=`${nav("home")}
   <div class="wrap">
     <div class="hero">
       <p class="eyebrow">Family reading</p>
-      <h1>Pace, and people vs the work</h1>
-      <p class="tag">Not the letter on the badge. Two sliders: how fast you move, and whether you protect the room or the plan. Tap anyone. Pick two to compare.</p>
+      <h1>${FAMILY.length} people, one instrument</h1>
+      <p class="tag">Everyone answered the same 28 forced choices. This site reads the results side by side: who runs fast and who runs deep, what each person is protecting, and what your own answer sheets say about every pairing in the house. Tap anyone — or pick two.</p>
     </div>
     <div class="card">
       <h2>This house</h2>
       ${scatter2x2(FAMILY,{label:"Family map: pace by priority", compact:true})}
-      <p class="small">Fast at the top, patient at the bottom. People to the left, the work to the right. One clearly fast person. A patient majority, split between the room and the plan.</p>
-      <p><a href="#/family">Open the family map</a></p>
+      <p class="small">Fast at the top, patient at the bottom. People to the left, the plan to the right.${mapLine?" "+esc(mapLine)+".":""}</p>
+      <p><a href="#/family">Open the family page — maps, house numbers, every pairing</a></p>
     </div>
     <div class="card">
       <h2>Compare two people</h2>
@@ -331,7 +371,7 @@ function renderHome(){
       <h2>The family</h2>
       <div class="people" id="plist">${FAMILY.map(p=>personCard(p,picked.includes(p.id))).join("")}</div>
     </div>
-    <p class="footer">DISC is a behavioral style model. First names only. Not for hiring. Not a clinical instrument.</p>
+    ${footNote()}
   </div>`;
   const c1=document.getElementById("c1"), c2=document.getElementById("c2");
   if(FAMILY[0]&&FAMILY[1]){c1.value=FAMILY[0].id;c2.value=FAMILY[1].id;}
@@ -351,28 +391,18 @@ function renderHome(){
   bindScatterClicks();
 }
 
-function methodFold(){
-  return `<div class="card"><details class="method"><summary>How the scoring works</summary>
-  <p class="small">D = ${esc(LEGEND.D)} · I = ${esc(LEGEND.I)} · S = ${esc(LEGEND.S)} · C = ${esc(LEGEND.C)}</p>
-  <p class="small"><b>Method:</b> 28 forced-choice situations, scored most/least (+2 / -1) on the classic DISC method. Because every item forces a trade-off, the four scores are <b>relative to each other, not to other people</b>. Two people with opposite energy levels can produce the same profile if they rank the four the same way. There is no population norm behind these numbers. The optional intensity ratings are the opposite kind of measure (statements rated 1-5 with no trade-off), which is why they can say "how much" while the ranking says "which wins." Band cutoffs: Low below 36, Moderate 36-64, High 65 and up. A single style is named only when the top two scores are at least ${PRIMARY_GAP} points apart. Below that, the pair is the result. If all four sit within ${BALANCED_SPREAD} points, no style is named.</p>
-  <p class="small"><b>The two sliders:</b> Pace is (D+I) minus (S+C). Positive is fast. Priority is (D+C) minus (I+S). Positive is the work, negative is the people in the room. Near even means the net sits inside 20 points. Friction between two people is mostly the gap on those sliders, even when the primary letters match.</p>
-  <p class="small"><b>How far to trust it:</b> treat this as a conversation starter rather than a measurement. Reliability here has been checked by simulation only.</p>
-  </details>
-  <p class="small" style="margin-top:10px"><b>Disclaimer:</b> a self-awareness and communication tool based on the DISC behavioral model. Not a clinical instrument. Not for hiring, promotion, or medical decisions.</p></div>`;
-}
-
 function originalReportFold(p){
   const r=p.result, pr=profileOf(p), dims=DIMS;
   const dimSecs=dims.map(d=>`<div class="dimhead"><span class="dot d${d}"></span>${d} · ${DIMNAMES[d]}: ${r.band[d]} (${r.N[d]})</div><p>${esc(DIMTEXT[d][r.band[d]])}</p>`).join("");
   let inner="";
   if(r.shape==="blend"&&pr){
     inner+=`<h3>Why two letters, not one</h3>
-    <p>Together, ${[...r.key].join(" and ")} are the pair. A style only reaches 100 by taking every win, and an even two-style split tops out at 67 apiece. Two bars in the 60s is not a lukewarm result, it is the ceiling for a strong pair.</p>
-    <p>The top two are <b>${r.gap} point${r.gap===1?"":"s"}</b> apart, inside the margin where a retake can swap which comes first. The pair is the result. The order shown is how they landed this sitting.</p>`;
+    <p>Together, ${[...r.key].join(" and ")} are the pair. A style only reaches 100 by taking every win, and an even two-style split tops out at 67 apiece. Two bars in the 60s is not a lukewarm result — it is the ceiling for a strong pair.</p>
+    <p>The top two are <b>${r.gap} point${r.gap===1?"":"s"}</b> apart, inside the margin where a retake can swap which comes first. The pair is the result; the order shown is how they landed this sitting.</p>`;
   }
   if(r.shape==="balanced"){
     inner+=`<h3>What a flat result means</h3>
-    <p>The four scores sit close enough together that naming a type would be inventing a difference the answers do not contain. That is a real result, not a failure. It usually means this person genuinely shifts approach to fit the situation instead of running one default. Read the four dimension write-ups rather than looking for a label.</p>`;
+    <p>The four scores sit close enough together that naming a type would invent a difference the answers do not contain. That is a real result, not a failure. It usually means this person genuinely shifts approach to fit the situation instead of running one default.</p>`;
   }
   if(pr){
     inner+=`<h3>${esc(pr.name)}</h3><p>${esc(pr.sum)}</p>
@@ -382,7 +412,7 @@ function originalReportFold(p){
     <h3>Drained by</h3><p>${esc(pr.dr)}</p>
     <h3>Under pressure</h3><p>${esc(pr.up)}</p>
     <h3>Working with ${esc(p.name)}</h3>
-    <p class="small">Original do and don't lists, written for workrooms. Translate them to the house.</p>
+    <p class="small">The original do and don't lists, written for workplaces. Translate to the house as needed.</p>
     <h3 style="color:var(--green)">Do</h3><ul>${pr.comm.do.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
     <h3 style="color:var(--red)">Don't</h3><ul>${pr.comm.dont.map(s=>`<li>${esc(s)}</li>`).join("")}</ul>
     <h3>${esc(p.name)}, next to each style</h3>
@@ -393,10 +423,10 @@ function originalReportFold(p){
   if(r.unspoken){
     inner+=`<h3>Neither reached for nor ruled out</h3>
     <p>${esc(UNSPOKEN_TEXT[r.unspoken])}</p>
-    <p class="small">This describes the answer pattern, the ${DIMNAMES[r.unspoken]} options left untouched in both directions. It is not a prediction of crisis behavior.</p>`;
+    <p class="small">This describes the answer pattern — the ${DIMNAMES[r.unspoken]} options left untouched in both directions. It is not a prediction of crisis behavior.</p>`;
   }
   return `<div class="card"><details class="orig"><summary>From the original report</summary>
-    <p class="small">Office-flavored source copy, kept for the profile names and the four-dimension write-ups. The lead above is the home reading.</p>
+    <p class="small">Office-flavored source copy, kept for the profile names and the four-dimension write-ups. The read above is the home version.</p>
     ${inner}
   </details></div>`;
 }
@@ -408,128 +438,132 @@ function listBlock(items){
   if(items) return `<p>${esc(items)}</p>`;
   return "";
 }
+function paras(arr){return (arr||[]).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join("")}
 
 function renderPerson(id){
   const p=byId(id); if(!p){location.hash="#/";return;}
   const r=p.result, home=personHome(p), S=home.snapshot;
   const note=p.note?`<p class="note">${esc(p.note)}</p>`:"";
   const others=FAMILY.filter(x=>x.id!==p.id).map(x=>`<a href="#/vs/${p.id}/${x.id}">${esc(x.name)}</a>`).join("");
-  const letterParas=(home.letterParas||[]).map(lp=>`<div class="dimhead"><span class="dot d${lp.letter}"></span>${lp.letter} at home · ${esc(lp.band)}</div><p>${esc(lp.para)}</p>`).join("");
-  const stack=home.stack?`<p>${esc(home.stack)}</p>`:"";
-  const pred=(home.predictions&&home.predictions.length)?`<h3>Leans from the four scores</h3>${listBlock(home.predictions)}`:"";
-  const ptrs=(home.pointers&&home.pointers.length)?`<h3>Living with ${esc(home.name)}</h3>${listBlock(home.pointers)}`:"";
+  const rankRow=home.ranksRow.length?`<div class="rankrow">${home.ranksRow.map(rr=>
+    `<span class="rankchip"><span class="dot d${rr.d}"></span>${rr.d} ${rr.n} · ${ordinalStr(rr.pos)}${rr.tied?"=":""} of ${rr.of}</span>`).join("")}</div>`:"";
   app.innerHTML=`${nav("person")}
   <div class="wrap">
     <div class="hero">
       <p class="eyebrow">At home</p>
       <div class="stagrow">${stags(S)}</div>
       <h1>${esc(p.name)}</h1>
+      <p class="tag">${esc(home.hero)}</p>
       <p class="tag">${esc(lettersLabel(r))} · D ${r.N.D} · I ${r.N.I} · S ${r.N.S} · C ${r.N.C}</p>
       ${note}
     </div>
     <div class="card">
-      <h2>At home</h2>
-      <p>${esc(home.lede)}</p>
-      <p class="small">${esc(home.caveat||"Typical, not a prediction of this Tuesday. A score is a lean, not a lock.")}</p>
-      <p>${esc(home.notThis)}</p>
-      ${stack}
-      ${letterParas}
-      <p>${esc(home.table)}</p>
-      <p>${esc(home.plan)}</p>
-      <p>${esc(home.pressure)}</p>
-      ${pred}
-      ${ptrs}
+      <h2>The read</h2>
+      ${paras(home.read)}
+      ${home.generated?`<p class="small">This read is generated from the scores — a hand-written one hasn't been added for ${esc(home.name)} yet.</p>`:""}
+    </div>
+    ${home.receipts.length?`<div class="card">
+      <h2>From your own answers</h2>
+      <p class="small">Nothing in this card was written by hand. Every line is computed from the answer sheet and recomputes if the data changes.</p>
+      ${listBlock(home.receipts)}
+    </div>`:""}
+    <div class="card">
+      <h2>Where you sit in this family</h2>
+      ${rankRow}
+      ${paras(home.famFacts)}
+      ${scatter2x2([p],{label:p.name+" on pace and priority"})}
+      <p class="small">Fast at the top, patient at the bottom. People to the left, the plan to the right.</p>
     </div>
     <div class="card">
-      <h2>On the family map</h2>
-      ${scatter2x2([p],{label:p.name+" on pace and priority"})}
-      <p class="small">Fast at the top, patient at the bottom. People to the left, the work to the right.</p>
+      <h2>The scales</h2>
+      <p class="small">${esc(home.name)} against the family average, on all five.</p>
+      ${personSliders(p)}
     </div>
     <div class="card"><h2>Four scores</h2>
       ${DIMS.map(d=>barRow(d,r.N[d],r.seg[d],r.band[d])).join("")}
-      <p class="small">Ranked against themself: every pick one style wins, another loses, so the four always total about the same. A bar only reaches 100 by taking every single win. A strong two-style pair tops out in the 60s.</p>
+      <p class="small">Scored against themself: every pick makes one style win and another lose, so the four always total about the same. A bar only reaches 100 by taking every single win; a strong two-style pair tops out in the 60s.</p>
     </div>
-    ${p.intensity?`<div class="card"><h2>Intensity (nothing forced to lose)</h2>
-      ${DIMS.map(d=>intensityRow(d,p.intensity[d])).join("")}
-      <p class="small">From the extra ratings, where nothing had to lose: how much of each they report having, not compared to anyone else.</p></div>`:""}
+    ${p.intensity?`<div class="card"><h2>Intensity — nothing forced to lose</h2>
+      ${DIMS.map(d=>intensityRow(d,p.intensity[d],likertVals(p.likert,d))).join("")}
+      <p class="small">The six raw ratings per letter, 1 to 5. Unlike the forced choices, nothing here had to lose — so this is how much of each they claim, not which wins. Where this and the bars above disagree, that gap is usually the most interesting thing on the page.</p></div>`:""}
+    <div class="card">
+      <h2>Buttons</h2>
+      <h3>What quietly drives ${esc(home.name)} crazy</h3>
+      ${listBlock(home.annoy)}
+      <h3>What lights ${esc(home.name)} up</h3>
+      ${listBlock(home.light)}
+    </div>
+    <div class="card">
+      <h2>Living with ${esc(home.name)}</h2>
+      ${listBlock(home.living)}
+    </div>
     ${originalReportFold(p)}
-    ${methodFold()}
-    <div class="card noprint"><h2>Compare with ${esc(p.name)}</h2>
+    <div class="card noprint"><h2>Compare ${esc(home.name)} with…</h2>
       <div class="linkrow">${others}</div>
       <a class="btn wide" href="${esc(p.report)}" target="_blank" rel="noopener">Full original report</a>
     </div>
-    <p class="footer"><a href="#/">← Everyone</a></p>
+    ${footNote(`<a href="#/">← Everyone</a> · `)}
   </div>`;
+  bindScatterClicks();
 }
-
-function paras(arr){return (arr||[]).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join("")}
 
 function renderPair(idA,idB){
   const a=byId(idA), b=byId(idB);
   if(!a||!b||a.id===b.id){location.hash="#/";return;}
   const copy=pairCopy(a,b);
   const an=copy.analysis;
-  const extraA=(copy.pointersA&&copy.pointersA.length)?`<h3>${esc(fname(a))} toward ${esc(fname(b))}</h3>${listBlock(copy.pointersA)}`:"";
-  const extraB=(copy.pointersB&&copy.pointersB.length)?`<h3>${esc(fname(b))} toward ${esc(fname(a))}</h3>${listBlock(copy.pointersB)}`:"";
   app.innerHTML=`${nav("pair")}
   <div class="wrap">
     <div class="hero">
       <p class="eyebrow">Pairing</p>
       <h1>${esc(fname(a))} and ${esc(fname(b))}</h1>
-      <p class="tag">${stags(an.A)} &nbsp; with &nbsp; ${stags(an.B)}</p>
       <p class="tag">${esc(copy.typeLabel)}</p>
+      <p class="tag">${stags(an.A)} &nbsp;·&nbsp; ${stags(an.B)}</p>
+      ${copy.geometry?`<p class="note">${esc(copy.geometry)}</p>`:""}
     </div>
     <div class="card">
-      <h2>Pace and priority</h2>
+      <h2>Side by side</h2>
       <p>${esc(copy.lede)}</p>
-      ${dualSliders(an.A, an.B, an.largerGap)}
-      <p class="small">${esc(copy.caveat||"Typical, not a prediction of this Tuesday. A score is a lean, not a lock.")}</p>
+      ${pairSliders(an, copy.scaleReads)}
     </div>
     <div class="card">
-      <h2>Comparison continua</h2>
-      <p class="small">Scales first. Pace and people vs the work always show. Tiny leftover lines are skipped. A gap is a tendency, not a lock.</p>
-      ${continuaBlock(an)}
-      ${paras(copy.scaleReads)}
+      <h2>How the two of you work</h2>
+      ${paras(copy.read)}
+      ${copy.generated?`<p class="small">This pairing's read is generated from the numbers — a hand-written one hasn't been added yet.</p>`:""}
+    </div>
+    ${copy.receipts.length?`<div class="card">
+      <h2>Your answers, side by side</h2>
+      <p class="small">Same 28 questions, both answer sheets. Computed, not composed.</p>
+      ${stripHTML(copy.strip)}
+      ${paras(copy.receipts)}
+    </div>`:""}
+    <div class="card">
+      <h2>Where you're alike</h2>
+      ${paras(copy.alike)}
+    </div>
+    <div class="card">
+      <h2>Where the wires cross</h2>
+      <div class="callout blue"><p><b>Reading ${esc(fname(a))}.</b> ${esc(copy.misreadA)}</p></div>
+      <div class="callout"><p><b>Reading ${esc(fname(b))}.</b> ${esc(copy.misreadB)}</p></div>
+    </div>
+    <div class="card">
+      <h2>What you give each other</h2>
+      <p>${esc(copy.giveA)}</p>
+      <p>${esc(copy.giveB)}</p>
+    </div>
+    <div class="card">
+      <h2>One move each</h2>
+      <div class="callout blue"><p><b>${esc(fname(a))}.</b> ${esc(copy.moveA)}</p></div>
+      <div class="callout"><p><b>${esc(fname(b))}.</b> ${esc(copy.moveB)}</p></div>
     </div>
     <div class="card">
       <h2>Both on the map</h2>
       ${scatter2x2([a,b],{label:fname(a)+" and "+fname(b)+" on pace and priority"})}
-      <p class="small">Same two sliders as the family map. Distance is the weekly translation work. Sitting on top of each other means the leftover letter still needs a name.</p>
-    </div>
-    <div class="card">
-      <h2>Where you are similar</h2>
-      ${paras(copy.similar)}
-      <div class="callout"><p><b>Shared blind spot.</b> ${esc(copy.similarBlind)}</p></div>
-    </div>
-    <div class="card">
-      <h2>Where it rubs</h2>
-      ${paras(copy.rubs)}
-      <h3>What each brings</h3>
-      <p>${esc(copy.bringsA)}</p>
-      <p>${esc(copy.bringsB)}</p>
-      <h3>How this shows up at home</h3>
-      ${paras(copy.atHome)}
-      ${(copy.predictions&&copy.predictions.length)?"<h3>Leans from leftover scores</h3>"+listBlock(copy.predictions):""}
-    </div>
-    <div class="card">
-      <h2>How to talk, how to decide, how to spend time</h2>
-      <h3>How to talk</h3>
-      ${listBlock(copy.talk)}
-      <h3>How to decide</h3>
-      ${listBlock(copy.decide)}
-      <h3>How to spend time</h3>
-      ${listBlock(copy.spendTime)}
-    </div>
-    <div class="card">
-      <h2>One tip each way</h2>
-      <div class="callout blue"><p><b>${esc(fname(a))} → ${esc(fname(b))}.</b> ${esc(copy.tipAB)}</p></div>
-      <div class="callout"><p><b>${esc(fname(b))} → ${esc(fname(a))}.</b> ${esc(copy.tipBA)}</p></div>
-      ${extraA}${extraB}
+      <p class="small">Distance here is the weekly translation work. Sitting close means the remaining differences live in the letters, not the axes.</p>
     </div>
     <div class="card">
       <h2>Letter map and scores</h2>
       ${wheelSVG([a,b],{label:fname(a)+" and "+fname(b)+" on the DISC map"})}
-      <p class="small">The letter wheel is the source scores. The two sliders above are what actually predict the week.</p>
       <div class="pairbars">
         <div class="minibars"><h3>${esc(a.name)}</h3>${DIMS.map(d=>barRow(d,a.result.N[d],a.result.seg[d],a.result.band[d])).join("")}</div>
         <div class="minibars"><h3>${esc(b.name)}</h3>${DIMS.map(d=>barRow(d,b.result.N[d],b.result.seg[d],b.result.band[d])).join("")}</div>
@@ -539,51 +573,112 @@ function renderPair(idA,idB){
       <a class="btn wide sec" href="#/p/${a.id}">${esc(a.name)} at home</a>
       <a class="btn wide sec" href="#/p/${b.id}">${esc(b.name)} at home</a>
     </div>
-    <p class="footer"><a href="#/">← Everyone</a> · <a href="#/vs/${b.id}/${a.id}">Swap order</a></p>
+    ${footNote(`<a href="#/">← Everyone</a> · <a href="#/vs/${b.id}/${a.id}">Swap order</a> · `)}
   </div>`;
   bindScatterClicks();
 }
 
-function namesList(arr){
-  if(!arr.length) return "none";
-  return arr.map(s=>s.name).join(", ");
-}
-
 function renderFamily(){
   const cl=familyClusters(FAMILY);
-  const house=[
-    "This house is a patient majority with one clearly fast person, and a split inside the patient group about what patience is for: the work, or the people in the room.",
-    "Patient and on the work: "+namesList(cl.slowTask)+". Patient and on the people: "+namesList(cl.slowPeople)+(cl.slowEven.length ? ", with "+namesList(cl.slowEven)+" nearby (patient, mixed on priority)" : "")+". Near the middle of both sliders: "+namesList(cl.center)+". Clearly fast: "+namesList(cl.fast)+".",
-    "What this house tends to do: plans get a runway. The fast wiring is often already down the road while everyone else is still checking who is coming. Inside the patient group, a holiday can stall for two different reasons at once. Someone wants it right. Someone wants everyone ok.",
-    "Group versus 1:1 is what people-priority looks like here (equal turns, the circle, the group chat). Buy-in versus already-moved is what a pace gap looks like when people-priority is in the mix. Those are examples of the two sliders, not a special story about two people. Every pair on this site is those sliders plus the leftover blend."
-  ];
+  const house=houseFacts();
+  const clusterLines=[];
+  if(cl.fast.length)clusterLines.push("Running fast: "+cl.fast.map(s=>s.name).join(", ")+".");
+  if(cl.slowTask.length)clusterLines.push("Patient, watching the plan: "+cl.slowTask.map(s=>s.name).join(", ")+".");
+  if(cl.slowPeople.length)clusterLines.push("Patient, watching the people: "+cl.slowPeople.map(s=>s.name).join(", ")+".");
+  const slowOther=cl.slow.filter(s=>!cl.slowTask.includes(s)&&!cl.slowPeople.includes(s));
+  if(slowOther.length)clusterLines.push("Patient, watching both: "+slowOther.map(s=>s.name).join(", ")+".");
+  if(cl.center.length)clusterLines.push("Near the middle of both axes, flexing by the room: "+cl.center.map(s=>s.name).join(", ")+".");
   app.innerHTML=`${nav("family")}
   <div class="wrap">
     <div class="hero">
       <p class="eyebrow">Family map</p>
-      <h1>Everyone on two sliders</h1>
-      <p class="tag">Fast vs patient. The work vs the people in the room. Same map for every pairing.</p>
+      <h1>The whole house at once</h1>
+      <p class="tag">Everyone on the same two axes, then the numbers the answer sheets produce when you put all of them side by side.</p>
     </div>
     <div class="card">
       <h2>Pace × priority</h2>
       ${scatter2x2(FAMILY,{label:"Family 2x2: pace by priority"})}
-      <p class="small">Tap a name for their page. Fast at the top. People to the left.</p>
+      <p class="small">Tap a name for their page. Fast at the top; people to the left.</p>
     </div>
+    ${house.length?`<div class="card">
+      <h2>House numbers</h2>
+      <p class="small">Computed from the answer sheets. These update themselves as people are added.</p>
+      ${listBlock(house)}
+    </div>`:""}
     <div class="card">
-      <h2>Clusters</h2>
-      ${house.slice(0,2).map(t=>`<p>${esc(t)}</p>`).join("")}
-    </div>
-    <div class="card">
-      <h2>What this house tends to do</h2>
-      ${house.slice(2).map(t=>`<p>${esc(t)}</p>`).join("")}
+      <h2>Who clusters where</h2>
+      ${paras(clusterLines)}
+      <p>What that mix does: plans in this house get a runway by default, and the fast wiring is usually three moves ahead of the room's consensus. Inside the patient majority, a stalled plan usually means two different things are being checked at once — whether it works, and whether everyone's genuinely in. Both checks end faster when someone names them out loud.</p>
     </div>
     <div class="card">
       <h2>All vs all</h2>
       ${matrixHTML()}
     </div>
-    <p class="footer"><a href="#/">← Everyone</a></p>
+    ${footNote(`<a href="#/">← Everyone</a> · `)}
   </div>`;
   bindScatterClicks();
+}
+
+function renderMethod(){
+  const notes=PEOPLE.filter(p=>p.note).map(p=>`<li><b>${esc(p.name)}:</b> ${esc(p.note)}</li>`).join("");
+  app.innerHTML=`${nav("method")}
+  <div class="wrap">
+    <div class="hero">
+      <p class="eyebrow">Methodology</p>
+      <h1>How the numbers work</h1>
+      <p class="tag">Everything this site claims traces back to one of the mechanisms on this page. No line of copy outranks the data underneath it.</p>
+    </div>
+    <div class="card">
+      <h2>The instrument</h2>
+      <p>Everyone answered the same 28 forced-choice questions. Each question offers four statements — one flavored toward each of D (${esc(LEGEND.D)}), I (${esc(LEGEND.I)}), S (${esc(LEGEND.S)}), and C (${esc(LEGEND.C)}) — and demands two picks: <b>most like me</b> and <b>least like me</b>. You cannot flatter every option. Every answer is a trade.</p>
+      <p>Scoring follows the classic method: +2 to the letter picked "most," −1 to the letter picked "least," summed over 28 questions and rescaled to a 0–100 range. Band cutoffs: <b>Low</b> below 36, <b>Moderate</b> 36–64, <b>High</b> 65 and up.</p>
+      <p>Because every point one letter gains is a point another letter forfeits, the four scores are <b>relative to the person, not to other people</b>. This is called ipsative measurement, and it has two consequences worth understanding. First, the four bars always total roughly the same, so a bar only approaches 100 by winning nearly every question — two bars in the 60s is the ceiling for a strong pair, not a lukewarm result. Second, two people with the same profile shape can differ enormously in raw intensity; the shape says which of your own gears wins, not how big the engine is.</p>
+    </div>
+    <div class="card">
+      <h2>Shapes: primary, blend, balanced</h2>
+      <p>A single style is named only when the top score clears the second by at least ${PRIMARY_GAP} points. Closer than that, the pair is the honest result (a "blend"), and the order the two landed in this sitting is within retake noise. If all four scores fit inside a ${BALANCED_SPREAD}-point spread, no style is named at all — a "balanced" shape. That is a real finding, not a shrug: it means the instrument pushed 28 times and could not find a consistent favorite, which is what genuine situational range looks like in the data.</p>
+    </div>
+    <div class="card">
+      <h2>The intensity ratings</h2>
+      <p>Some people also completed 24 free-standing statements, rated 1–5, six per letter. This is the opposite kind of measurement: nothing is forced to lose, so it captures <b>how much</b> of each style a person claims rather than <b>which wins</b> a trade. When the forced choices and the free ratings agree, the picture is confirmed from two directions. When they disagree — the trade-off test crowns one letter while the free ratings crown another — you are usually looking at the difference between how someone operates in public trade-offs and how they see themselves when nothing has to be sacrificed. The site flags those gaps deliberately; they are among the most informative numbers here.</p>
+    </div>
+    <div class="card">
+      <h2>The five scales</h2>
+      <p>The site's scales are simple, transparent arithmetic on the four scores — nothing hidden:</p>
+      <ul>
+        <li><b>Patient vs Driven</b> (pace): (D + I) − (S + C). How soon a decision feels real.</li>
+        <li><b>The people in the room vs The plan</b> (priority): (D + C) − (I + S). What gets protected first. Note that a people-lean can arrive two ways — through I (energy and company) or through S (care and keeping the group whole) — and the copy keeps them distinct, because they are.</li>
+        <li><b>Tactful vs Frank</b>: D − S. Whether the first draft of a sentence gets softened.</li>
+        <li><b>Private vs Outgoing</b>: I − C. How much thinking happens out loud.</li>
+        <li><b>Careful vs Daring</b>: D − C. The appetite for acting before everything is verified.</li>
+      </ul>
+      <p>A gap under about 10 points on a scale is agreement; past about 25 it shapes actual evenings.</p>
+    </div>
+    <div class="card">
+      <h2>The answer-sheet comparisons</h2>
+      <p>Because everyone sat the identical questions, two people's sheets can be laid row against row — that is what the pair pages' receipts are. The definitions:</p>
+      <ul>
+        <li><b>Same "most":</b> both picked the same statement as most-like-me on that question.</li>
+        <li><b>Identical:</b> same "most" and same "least" — the full answer matched.</li>
+        <li><b>Crossed:</b> one person's "most me" statement is the very one the other marked "least me." The purest unit of built-in mistranslation the data can measure.</li>
+      </ul>
+      <p>Distance between two people is the sum of their four score gaps — |ΔD| + |ΔI| + |ΔS| + |ΔC| — used for "closest pair," "farthest," and the family average. Rankings recompute automatically as people are added.</p>
+    </div>
+    <div class="card">
+      <h2>Care checks</h2>
+      <p>Four of the 28 questions appear twice in different clothing. Matching picks on those twins indicate a consistent read; scattered picks indicate either a hurried sitting or — specifically for balanced shapes — answers that genuinely track situations rather than a fixed default. The site only cites this signal where the shape supports the interpretation.</p>
+    </div>
+    <div class="card">
+      <h2>What this cannot tell you</h2>
+      <p>One sitting of a self-report questionnaire measures how a person sorted 28 trade-offs on one day. It does not measure intelligence, character, effort, or love. It will not predict any particular Tuesday, and a strong pattern is still a pattern — everyone here has overridden their own wiring a thousand times for someone they care about, which is a fact about them the instrument cannot see. Read every page with that in your pocket. This is a mirror and a translation guide, not a verdict.</p>
+    </div>
+    ${notes?`<div class="card"><h2>Data notes</h2><ul>${notes}</ul></div>`:""}
+    <div class="card">
+      <h2>Adding or updating a person</h2>
+      <p>Everything on this site derives live from the answer codes in <b>people.js</b>. Adding a person's code adds their page, every pairing with them, and re-ranks every family fact automatically. The hand-written reads are keyed by person; a new person gets a generated read until one is written. Details in the repo's README.</p>
+    </div>
+    ${footNote(`<a href="#/">← Everyone</a> · `)}
+  </div>`;
 }
 
 function route(){
@@ -594,6 +689,7 @@ function route(){
   if(parts[0]==="p"&&parts[1]){renderPerson(parts[1].toLowerCase());return;}
   if(parts[0]==="vs"&&parts[1]&&parts[2]){renderPair(parts[1].toLowerCase(),parts[2].toLowerCase());return;}
   if(parts[0]==="family"){renderFamily();return;}
+  if(parts[0]==="method"){renderMethod();return;}
   renderHome();
 }
 window.addEventListener("hashchange",route);

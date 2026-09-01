@@ -217,6 +217,34 @@ details.orig summary,details.method summary{cursor:pointer;font-weight:750;paddi
 details.orig{margin-top:4px}
 details.orig h3{margin-top:14px}
 
+/* Family ranks on the person page */
+.rankrow{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 10px}
+.rankchip{
+  display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;
+  background:#ece6da;font-size:.75rem;font-weight:800;color:var(--navy);
+}
+
+/* Answer-sheet strip on pair pages: 28 questions, colored by overlap */
+.stripwrap{margin:6px 0 10px}
+.strip{display:grid;grid-template-columns:repeat(28,1fr);gap:2px}
+.strip .sc{display:block;aspect-ratio:1/1;border-radius:3px}
+.sc{background:#e6e0d3}
+.sc.twin{background:var(--dS)}
+.sc.match{background:#8fc7a6}
+.sc.anti{background:#9db4e8}
+.sc.clash{background:var(--dD)}
+.sc.quiet{background:#e6e0d3}
+.striplegend{
+  display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:7px;
+  font-size:.72rem;color:var(--sub);font-weight:600;
+}
+.striplegend .sc{
+  display:inline-block;width:10px;height:10px;border-radius:3px;
+  margin-right:4px;vertical-align:middle;
+}
+
+@media print{.noprint{display:none}}
+
 @media (max-width:430px){
   .m2-axis{font-size:.6rem;letter-spacing:.08em}
   .m2-e{max-width:3.6rem}
