@@ -429,6 +429,38 @@ kate: {
     "Hard news: early and gently beats late and loud, every time.",
     "Protect the gatherings she builds. They look effortless. They're her masterwork."
   ]
+},
+
+cherie: {
+  hero: "Warmth that stays.",
+  read: [
+    "S 60 and I 57 — a three-point gap, which is to say no gap at all. Warmth that reaches out and steadiness that stays put are usually a trade-off; you post them as a tie, and the free self-ratings call the same tie from the other side, 3.8 to 3.7 in the other order. Point any instrument at you and it comes back with one reading: people, twice, and nothing else close.",
+    "The bottom of the profile says as much as the top. D 24 and C 26 mean that steering people and perfecting things barely register as ways you move through a day — and the note on this page says even those numbers probably run high. Subtract drive and scrutiny, and what's left is a person whose whole attention is free for the room: who's here, how they actually are, whether they know they're wanted. Not as a job, the way a host runs a table. As a default, the way a lamp is on.",
+    "It's worth naming what kind of people-focus this is, because it isn't the spotlight kind. You don't need the stage any more than you need the wheel. It's proximity: you'd rather be in the middle of everyone's lives than in front of them — the check-in, the remembered detail, the follow-up about a thing from three weeks ago that the person who said it forgot they'd mentioned. People walk away from you feeling specifically liked, not generally entertained. That is a different craft, and a rarer one.",
+    "Your pace sits almost dead even, and that's not indecision — it's that speed was never the point. You move at whatever tempo keeps people together, which makes you flexible about nearly everything except the one thing: a decision that costs somebody something. Efficiency arguments do not move you there. You'll take the longer route, the later dinner, the worse logistics, every time, if the shorter way leaves someone out — and you don't present it as a sacrifice, which is why half of them are never even noticed.",
+    "Under pressure you go toward people: checking in, smoothing, holding the group's threads while the problem does its worst. What you don't do is escalate. With barely any D in the mix, your anger tends to arrive as hurt, and your hurt arrives quietly — so the people who love you have to learn that a subdued Cherie is a signal flare, not a mood. The plan can fail. The people can't. That's the whole architecture."
+  ],
+  annoy: [
+    "Being the only one tending the group while everyone else somehow “didn't notice.”",
+    "Coldness in the name of efficiency — the plan treated as more real than the people in it.",
+    "Someone left out, and the room shrugging.",
+    "The sharp version of a sentence, chosen when the kind version was right there.",
+    "A warm moment getting nitpicked to death.",
+    "Being managed."
+  ],
+  light: [
+    "Everyone in one place, no agenda, nobody watching the clock.",
+    "Being sought out — the call, the visit, the “I was thinking about you” arriving inbound for once.",
+    "An introduction she made, taking on a life of its own.",
+    "The thing she mentioned once, remembered.",
+    "A day quietly rearranged around a person, with nobody needing convincing."
+  ],
+  living: [
+    "Reciprocate the noticing. Cherie runs most of her warmth outbound; one inbound check-in is worth ten thank-yous.",
+    "Don't argue efficiency when the cost lands on a person. Restate the plan in terms of who it's for, and she's your easiest yes.",
+    "A subdued Cherie is not a neutral Cherie. Ask early — quiet is her loudest register.",
+    "Hand her the connecting jobs, and hand the hard-line jobs to someone else. That split isn't a weakness; it's the right tool, twice."
+  ]
 }
 };
 
@@ -569,6 +601,15 @@ function personReceipts(p, S){
       out.push("Here's the interesting one. When the test forced a trade, " + LETTER_WORD[forcedTop] + " won. When you could rate yourself freely, with nothing forced to lose, you put " + LETTER_WORD[likTop] + " on top: " + me.lik.avg[likTop].toFixed(1) + " out of 5" + famNote + ". The public answer and the private one are not the same answer.");
     } else if (likTop === forcedTop && me.lik.avg[likTop] >= 3.8 && me.shape !== "balanced"){
       out.push("Both ways of asking agree about you. The forced trade-offs crowned " + LETTER_WORD[forcedTop] + "; rating yourself freely, you crowned it again — " + me.lik.avg[likTop].toFixed(1) + " out of 5. The public answer and the private one are the same answer.");
+    } else if (likTop !== forcedTop && me.shape === "blend"){
+      /* photo finish: both methods called it a dead heat between the same two letters */
+      const f2 = [me.order[0], me.order[1]].sort().join("");
+      const l2 = [me.lik.order[0], me.lik.order[1]].sort().join("");
+      const fgap = me.N[me.order[0]] - me.N[me.order[1]];
+      const lgap = Math.round((me.lik.avg[me.lik.order[0]] - me.lik.avg[me.lik.order[1]]) * 10) / 10;
+      if (f2 === l2 && fgap <= 5 && lgap <= 0.3){
+        out.push("The forced test called it " + LETTER_WORD[forcedTop] + " by a nose (" + me.N[forcedTop] + " to " + me.N[me.order[1]] + "). Rating yourself freely, you called it " + LETTER_WORD[likTop] + " by a nose (" + me.lik.avg[likTop].toFixed(1) + " to " + me.lik.avg[me.lik.order[1]].toFixed(1) + "). Two different instruments, one verdict: a genuine dead heat between the same two letters. That tie is the finding.");
+      }
     }
   }
 
@@ -585,6 +626,27 @@ function personReceipts(p, S){
   const myLow = F.lowTies.filter(c=>c.id===p.id);
   if (myLow.length && !myTop.some(c=>c.d===myLow[0].d)){
     out.push("Your " + myLow[0].d + " of " + myLow[0].n + " is the single lowest score on the family's whole board" + (F.lowTies.length>1 ? " (shared)" : "") + ". Nobody here rules anything out harder than you rule out " + LETTER_WORD[myLow[0].d] + ".");
+  }
+
+  /* the poles of the house: strongest slider tilt, unless a top-score receipt
+     already told this person's extremity story */
+  if (!myTop.length && !myLow.length && F.familySize >= 4){
+    const myNets = netsOf(me.N);
+    const allNets = Object.keys(F.persons).map(id=>({id, n:netsOf(F.persons[id].N)}));
+    const peopleMost = allNets.reduce((a,b)=>b.n.pri < a.n.pri ? b : a);
+    const planMost   = allNets.reduce((a,b)=>b.n.pri > a.n.pri ? b : a);
+    const fastest    = allNets.reduce((a,b)=>b.n.pace > a.n.pace ? b : a);
+    const patientest = allNets.reduce((a,b)=>b.n.pace < a.n.pace ? b : a);
+    const unique = (val, key)=>allNets.filter(x=>x.n[key]===val).length === 1;
+    if (peopleMost.id === p.id && myNets.pri <= -35 && unique(myNets.pri, "pri")){
+      out.push("No profile in this family tilts harder toward the people in the room than yours. Not the loudest — the most committed: whenever the plan and the people pulled apart on this sheet, the people won.");
+    } else if (planMost.id === p.id && myNets.pri >= 35 && unique(myNets.pri, "pri")){
+      out.push("No profile in this family tilts harder toward the plan than yours: when the plan and the people pulled apart on this sheet, the plan won.");
+    } else if (fastest.id === p.id && myNets.pace >= 35 && unique(myNets.pace, "pace")){
+      out.push("Yours is the fastest profile in the family — no sheet here tilts harder toward Driven.");
+    } else if (patientest.id === p.id && myNets.pace <= -35 && unique(myNets.pace, "pace")){
+      out.push("Yours is the most patient profile in the family — no sheet here tilts harder toward Patient.");
+    }
   }
 
   /* the sleeper rank: second-highest in the family on a letter that isn't your lead */
@@ -711,7 +773,7 @@ const PAIR_READS = {
 
 "alex|elliana": {
   read: [
-    "Elliana is the one person in the family who can genuinely meet Alex at his speed — and the only one who chooses, room by room, whether to. That makes this pairing lighter than most of Alex's: less translation overhead, more actual play. It also hides a subtle imbalance worth naming: when the two of you sync, it's almost always because she moved.",
+    "Elliana can genuinely meet Alex at his speed — and chooses, room by room, whether to. That makes this pairing lighter than most of Alex's: less translation overhead, more actual play. It also hides a subtle imbalance worth naming: when the two of you sync, it's almost always because she moved.",
     "Her range is doing quiet work here. She can ride the momentum when the plan is good, and she can put a hand on the wheel when it isn't — and she does both so smoothly that Alex can go months without noticing which one has been happening. He reads the compatibility as natural. It is. It's also, partly, skilled labor."
   ],
   misreadA: "Alex's constant broadcast can read to Elliana like a man who doesn't need input. He does — he just collects it as reactions rather than memos. Her raised eyebrow genuinely changes his course; neither of them tends to notice it happening.",
@@ -737,7 +799,7 @@ const PAIR_READS = {
 
 "alex|mike": {
   read: [
-    "The two most social people in the family, mounted on opposite chassis. Alex's sociability is offense — pitch, occasion, the plan that needs a headcount by nine. Mike's is defense — ease, the running joke, the temperature held steady. They can carry an evening between them for hours, and it looks effortless because for both of them it mostly is.",
+    "Two deeply social people, mounted on opposite chassis. Alex's sociability is offense — pitch, occasion, the plan that needs a headcount by nine. Mike's is defense — ease, the running joke, the temperature held steady. They can carry an evening between them for hours, and it looks effortless because for both of them it mostly is.",
     "The thing to watch is what happens under Alex's push. Mike absorbs it. He'll agree, go along, keep it light — and Alex banks each easy yes as a real one. Most are. But Mike's peacekeeping yes and his actual yes are pronounced identically, and Alex, moving at speed, has no reason to check which one he just heard. The gap only surfaces later, as plans that quietly evaporate rather than get declined."
   ],
   misreadA: "Alex's directness can feel like pressure to Mike even when nothing's being demanded — throughput reads as urgency. Most of the time Alex isn't pushing; he's just moving, and anyone nearby feels the wind.",
@@ -893,7 +955,7 @@ const PAIR_READS = {
 
 "colin|kate": {
   read: [
-    "The family's deep keel, in two drafts. Both of you run on steadiness first — patient, loyal, in for the long haul — and the difference is one letter doing a lot of work: her steadiness gathers, his holds. Kate's version points at the table: everyone in, everyone fed, the room made whole. Colin's points at the ground: the standard kept, the routine defended, the thing finished properly.",
+    "Two drafts of the family's deep keel. Both of you run on steadiness first — patient, loyal, in for the long haul — and the difference is one letter doing a lot of work: her steadiness gathers, his holds. Kate's version points at the table: everyone in, everyone fed, the room made whole. Colin's points at the ground: the standard kept, the routine defended, the thing finished properly.",
     "Together you're a kind of infrastructure — the reliable floor other people build their louder lives on. The one true gap is social metabolism. Her battery charges at the full table; his drains there, slowly, no matter how much he loves everyone at it. Neither of you is wrong about what an evening is for. You're measuring different evenings."
   ],
   misreadA: "Colin's early exits and quiet corners can read to Kate as not caring about the gathering. He cares by being there — presence is the whole statement. Working the room isn't a thing he owes; it's a thing he doesn't have.",
@@ -1023,7 +1085,7 @@ const PAIR_READS = {
 
 "elliana|mike": {
   read: [
-    "The family's two easiest people to be around, for opposite reasons. Mike is easy because he holds one comfortable register and keeps everyone in it. Elliana is easy because she'll match whatever register you brought. Put them together and there's no friction to find — which is itself the finding: someone has to generate a preference, and neither of you is reaching for the pen.",
+    "Two of the family's easiest people to be around, for opposite reasons. Mike is easy because he holds one comfortable register and keeps everyone in it. Elliana is easy because she'll match whatever register you brought. Put them together and there's no friction to find — which is itself the finding: someone has to generate a preference, and neither of you is reaching for the pen.",
     "“Whatever you want” squared is a real phenomenon between you: two genuinely flexible people, each deferring to the other's deferral, choosing the default nobody chose. Nine times out of ten the default is fine. The tenth time, both of you had a real preference, and both of you yielded it to be nice — a small double loss that neither reports."
   ],
   misreadA: "Elliana's accommodation can read to Mike as truly having no preference. She has one — it's just parked behind her read of what keeps things easy, which is the language he speaks best.",
@@ -1062,7 +1124,7 @@ const PAIR_READS = {
 
 "kate|mike": {
   read: [
-    "The comfortable pairing — the family's two warm-steady people, fluent in each other from the first sentence. Both of you read rooms, keep peace, and prefer everyone happy over anyone right. Kate does it as the gatherer, actively building the warmth; Mike does it as the regulator, keeping everything light and level. Same values, two different instruments, zero translation cost.",
+    "The comfortable pairing — two warm-steady people, fluent in each other from the first sentence. Both of you read rooms, keep peace, and prefer everyone happy over anyone right. Kate does it as the gatherer, actively building the warmth; Mike does it as the regulator, keeping everything light and level. Same values, two different instruments, zero translation cost.",
     "One shared trait runs deep enough to name: neither of you will start the hard conversation. Ever. Between two conflict-averse people, the difficult thing doesn't get half as much airtime — it gets none, indefinitely, while both of you tend the pleasantness around it. Nothing about this pairing needs fixing except that single missing job."
   ],
   misreadA: "Kate's tending can occasionally read to Mike as making things heavier than they need to be — a check-in where a joke would've done. Her check-ins are the joke's cousin: same goal, the room okay, different tool.",
@@ -1136,6 +1198,123 @@ const PAIR_READS = {
   giveB: "Sofia is the contingency Renee can't write down — whatever the plan misses, she's the one who takes it in stride.",
   moveA: "Say the exception loudly when you have one. She calibrates to your usual yes; the rare no needs a flag on it.",
   moveB: "Same rule, mirrored. Your agreement rate is why neither of you sees the exception coming."
+},
+
+"alex|cherie": {
+  read: [
+    "You share the one big thing and split nearly everything else — the receipts below put strange numbers on that, but the shape is simple. The big thing: people first. Both of you would trade a correct plan for a good room without a second thought, and neither of you has ever willingly read the fine print on anything. The split is how you get to people. Alex arrives through motion — the occasion, the pitch, the room lit up. Cherie arrives through attention — the thread kept, the person seen, the group held together long after the occasion ends.",
+    "Run those in sequence and it's a complete system. He generates the gatherings; she makes them belong to people. He recruits the bus; she checks at every stop that everyone's still on it. His page says the maintenance half of people-work is the part he never signed up for. Hers says it's the part she can't not do. So even the friction is the same machinery: his close-it-now and her nobody-left-behind are one value — the people — pulling on the same evening at two different speeds."
+  ],
+  misreadA: "Alex's push to lock the plan can land on Cherie as the people getting run over by the schedule. The intent is the opposite: to him a decided plan is an act of care — once it's closed, everyone can finally relax inside it, himself included.",
+  misreadB: "Cherie's one-more-check on everybody can land on Alex as the plan dying in committee. It isn't a stall. It's his own value running at ground level — and the moment she's satisfied nobody's stranded, her yes is instant.",
+  giveA: "Alex gives Cherie the occasions: the momentum and nerve that turn her web of people into actual rooms full of them.",
+  giveB: "Cherie gives Alex the durability: the relationships his momentum starts and was never going to maintain, kept warm between his big swings.",
+  moveA: "Before you close, hand her the last check on purpose — “anyone we're missing?” It costs thirty seconds and converts her worried yes into her full one.",
+  moveB: "Give him the fast no when it's no. He can rebuild a plan in a minute; what he can't use is a soft yes that dissolves on Thursday."
+},
+
+"ashley|cherie": {
+  read: [
+    "Same tempo, different cargo. You two move at nearly the same ready-but-unhurried pace and you're protecting different things: Ashley the outcome — done right, holding up later — and Cherie the people it lands on. Neither of you performs, so the difference stays quiet: one of you re-checking the plan, the other re-checking the people, both in a level voice.",
+    "What each should know about the other: Ashley's regard doesn't come out as warmth — it comes out as trust. The handed-over task, the unpadded answer, the assumption that you don't need managing: that's her affection in its native format. And Cherie's warmth isn't social filler — it's actual infrastructure, the reason the family's threads hold between occasions. You each run a maintenance program the other one barely sees."
+  ],
+  misreadA: "Ashley's economy — short answers, level voice, zero fuss — can read to Cherie as coolness toward her. Read it again: Ashley pads things for people she's managing. The unpadded version is her version of close.",
+  misreadB: "Cherie's people-first lens can read to Ashley as being soft on substance. It isn't softness — it's a different definition of the substance. Ask her about the people-load of a plan and the analysis comes back as rigorous as yours.",
+  giveA: "Ashley says the hard, load-bearing thing so Cherie's warmth never has to carry it.",
+  giveB: "Cherie keeps the temperature of the rooms Ashley needs to be effective in — and says Ashley's invisible work out loud, which almost nobody does.",
+  moveA: "One specifically warm sentence per visit. It costs you nothing and changes the whole exchange rate.",
+  moveB: "Bring her the ask straight, without the cushioning. She hears cushioning as distance."
+},
+
+"cherie|colin": {
+  read: [
+    "Underneath, you're alloys of the same metal: steadiness, loyalty, the long haul. Nobody ever had to teach either of you to stay. The canyon is on the surface — Cherie recharges by being with everyone, Colin by being with almost no one — and each of you finds the other's setting slightly unfathomable: company as fuel versus company as cost.",
+    "The good news is that steadiness recognizes steadiness. You keep your word at the same rate, hold people the same number of decades, distrust flash equally. Cherie reads Colin's presence-without-performance better than most, because under all her sociability she runs on the same quiet loyalty he does. And Colin — who lets very few people in — tends to keep the ones he has let in permanently."
+  ],
+  misreadA: "Cherie's sociability can read to Colin as noise with a bill attached — energy about to be requested of him. Mostly it's the opposite: she's including him with no response required. The invitation is the entire message.",
+  misreadB: "Colin's solitude can read to Cherie as a thread coming loose — someone drifting who needs pulling back in. He isn't drifting; he's at anchor. A quiet room with him in it is him participating.",
+  giveA: "Cherie keeps Colin stitched into the wider family without ever making him perform for it.",
+  giveB: "Colin gives Cherie the one relationship that needs no tending at all — a bond that holds at full strength through total silence.",
+  moveA: "Visit him in his format: small, quiet, no occasion. One of those outweighs five invitations.",
+  moveB: "Answer one thread a month — the text back, the chair at the table. Tiny for you; it refills her whole ledger."
+},
+
+"cherie|derek": {
+  read: [
+    "The sheets say you two are built to misread each other, almost by design: what she leads with — warmth, connection, the reaching-out — is the thing his answers decline hardest, and what he leads with — precision, the standard, the check — is the thing hers decline most. On paper, the family's cleanest built-in translation problem.",
+    "And yet, under opposite decorations, the same steadiness floor. Both of you are loyal in the unglamorous, decades-long way; both do what you said; neither performs for strangers. Derek's care arrives as accuracy — the thing fixed, the fact checked, the flaw caught before it cost anyone. Cherie's arrives as attention. Neither currency converts automatically. Both spend beautifully once you learn the exchange rate."
+  ],
+  misreadA: "Cherie's warmth can read to Derek as enthusiasm where information should be. But the signal is real — it just rides a different band. “How are they doing” is her version of a precise question.",
+  misreadB: "Derek's corrections and quiet can read to Cherie as coldness toward people. They were never aimed at people — they're aimed at problems, on people's behalf. Getting it right is how he keeps the people he rarely says much to.",
+  giveA: "Cherie carries Derek's presence through the family's social bloodstream — he stays connected without generating a single watt of it himself.",
+  giveB: "Derek is the one fixed point that needs no emotional weather-reading: what's said is exactly what's meant, every time.",
+  moveA: "Ask him one precise question about something he built. It's worth an hour of small talk, at a fraction of the cost to him.",
+  moveB: "Hand her one observed, specific thing about a person — “the kids seemed happy tonight.” From you, that lands like a speech."
+},
+
+"cherie|elliana": {
+  read: [
+    "One of you holds a setting; the other holds a dial. Cherie runs warmth as a constant — the same person at every table, tuned permanently to who needs what. Elliana runs range — matching whatever a room is short on, different registers on different days. The answer sheets barely overlap, and it isn't friction; it's two entirely different instruments pointed at the same subject: the room, and the people in it.",
+    "That shared subject is the connection. You both notice what the rest of the table misses — Cherie reads who needs attention, Elliana reads what mode the moment needs. Compare notes and you're close to omniscient about an evening. Just don't grade each other's instrument by your own: a setting isn't stubbornness, and a dial isn't fickleness."
+  ],
+  misreadA: "Cherie's constant warmth can read to Elliana as a single gear — as if she couldn't do the other registers. She has them. She's just concluded this one is the point.",
+  misreadB: "Elliana's cooler modes can read to Cherie as something wrong — or worse, as being shut out. Usually it's neither: it's the dial doing its job for a different room than the one Cherie is warming.",
+  giveA: "Cherie is a fixed source of being specifically seen — steady, personal attention that doesn't depend on which mode anyone's in.",
+  giveB: "Elliana meets Cherie in registers the rest of the family doesn't carry — and covers the rooms warmth alone can't.",
+  moveA: "Ask which mode she's in before reading anything into it. The answer takes ten seconds and beats the guess every time.",
+  moveB: "When it's just a mode, say so. One sentence spares Cherie an evening of quiet thread-checking."
+},
+
+"cherie|kate": {
+  read: [
+    "The family's warmth, in two adjacent workshops. Kate builds the containers: the gathering, the table, the tradition that makes everyone show up. Cherie tends the contents: the individual threads, the person-by-person attention inside and between those gatherings. From a distance the two jobs look identical. Up close they're adjacent, complementary, and almost never in each other's way — which is why your answer sheets run so parallel and the friction file is nearly empty.",
+    "The one watch-item is a shared reflex, not a difference. Neither of you sends the invoice. Kate swallows the hard thing to save the evening; Cherie takes the longer road so nobody's left out — and two absorbers can hold a great many unsaid things between them, in perfect mutual sympathy, indefinitely."
+  ],
+  misreadA: "Cherie's person-by-person focus can occasionally read to Kate as undervaluing the gathering itself — leaving the party for one real conversation in the kitchen. That kitchen conversation is her version of the party.",
+  misreadB: "Kate's event-tending can read to Cherie as attention spread thin — everyone fed, nobody deeply seen. But the container is care too: someone has to make the room exist before anyone can connect inside it.",
+  giveA: "Cherie deepens what Kate gathers — the follow-up thread that keeps living after Kate's table empties.",
+  giveB: "Kate builds the rooms Cherie's warmth works best in — a steady supply of occasions to tend people at.",
+  moveA: "Tell her what actually landed at her gatherings. The builder of the container almost never hears what happened inside it.",
+  moveB: "Hold one kitchen-conversation slot for her at every gathering. Her best work happens just off the main floor."
+},
+
+"cherie|mike": {
+  read: [
+    "Easy company, squared. Neither of you grabs wheels, manages people, or lets a room curdle — warmth is the default weather here and nobody's performing it. The difference is delivery. Mike keeps it ambient: the line, the low-key include, the temperature held from the middle of the room. Cherie makes it personal: the direct question, the remembered detail, the checked-on feeling. Same instinct, two ranges.",
+    "The pairing works because each of you covers the other's blind arc. Mike's ease can leave real things unsaid forever; Cherie's directness about people gives them somewhere to surface. Cherie's tending can tip into carrying too much of the family's weather by herself; Mike's lightness takes pounds off her without a word being said about it."
+  ],
+  misreadA: "Cherie's check-ins can read to Mike as more weight than the moment asked for. They aren't weight — they're her way of keeping the line open, which is the same job his jokes do.",
+  misreadB: "Mike's deflections can read to Cherie as a door closing. It's usually ajar: the jokes are where he keeps the true things. The third one in a row is carrying something.",
+  giveA: "Cherie asks the direct thing his ease never will — and makes it safe to answer.",
+  giveB: "Mike gives her warmth that requires no tending back — one relationship that maintains itself.",
+  moveA: "Let some check-ins be jokes. He answers the light version of a question more honestly than the heavy one.",
+  moveB: "Answer one straight now and then. She keeps the real answers, and that file is part of why this family works."
+},
+
+"cherie|renee": {
+  read: [
+    "The family's care, running on two different infrastructures. Renee's is built ahead of time: the plan, the arrangements, the day that goes right because she made it go right last Tuesday. Cherie's is spent in the moment: the attention, the noticing, the person-shaped adjustments no plan can schedule. Both systems are load-bearing. Each is invisible to anyone who only counts the other kind.",
+    "Which is the friction and the gift in one mechanism: you can each under-count the other's currency. A flawless day running on rails can read to Cherie as loving the day more than the people in it; a warm improvisation that blows the schedule can read to Renee as spending what she carefully budgeted. Trade ledgers now and then — each of you is rich in exactly what the other's system cannot produce."
+  ],
+  misreadA: "Cherie's in-the-moment swerves — the extra stop, the long goodbye, the guest who got folded in — can read to Renee as the plan being disrespected. They aren't against the plan. They're for the same people the plan was for.",
+  misreadB: "Renee's logistics-first questions can read to Cherie as coldness wrapped around something warm. The itinerary is her affection in written form — every handled detail is a person she thought about in advance.",
+  giveA: "Cherie supplies the felt warmth that turns Renee's flawless days into family instead of operations — and says out loud the work everyone else just consumes.",
+  giveB: "Renee builds the stage Cherie's care plays on: the day arranged, the logistics absorbed, the room ready for people to actually see each other.",
+  moveA: "Flag the swerve early — “we might add a stop.” Warned chaos is a footnote; surprise chaos is a demolition.",
+  moveB: "Write slack into the plan under her name. An unscheduled hour marked “Cherie” is the best line item on any itinerary."
+},
+
+"cherie|sofia": {
+  read: [
+    "The reacher and the rock. Cherie's steadiness comes with outreach attached: threads tended, people checked on, the connective work done out loud. Sofia's comes sealed: constancy without commentary, care proven by showing up and never by saying so. Same steady side of the family, nearly opposite ideas of what care should look like from the outside.",
+    "Neither needs converting. Sofia's quiet isn't a thread coming loose — her bonds don't fray from silence, which is exactly what makes her restful. And Cherie's outreach isn't neediness — it's the family's circulatory system doing its rounds. This pairing settles the moment each of you stops reading the other through your own operating manual."
+  ],
+  misreadA: "Cherie's check-ins can read to Sofia as being fussed over — a wellness check she never filed for. It isn't worry; it's just the direction Cherie's loyalty moves. Answering costs one sentence.",
+  misreadB: "Sofia's non-reaching can read to Cherie as distance. It's the opposite: Sofia doesn't tend her strongest bonds because they don't need tending. Being one of them is the compliment.",
+  giveA: "Cherie makes sure Sofia's quiet never turns into being overlooked — seen and included at zero social cost.",
+  giveB: "Sofia gives Cherie one bond with no reciprocity math at all. Nothing owed, nothing tracked. Just there.",
+  moveA: "Trust the sealed version. One real conversation a season with Sofia outweighs a month of check-ins.",
+  moveB: "Send the unprompted text twice a year. From you it's practically a parade, and she'll know exactly what it cost."
 }
 };
 
@@ -1215,6 +1394,21 @@ function pairReceipts(an, pf, F){
   }
   if (F.closestPair && pf.l1 === F.closestPair.l1 && pf.sameMost <= 9){
     out.push("And here's the strange one: you own the closest scores in the family, yet you matched answers on only " + pf.sameMost + " of 28 questions. You arrived at nearly the same shape from different instincts — same silhouette, different routes.");
+  }
+
+  /* nearest/farthest geometry between exactly these two people */
+  const PA = F.persons[an.A.p.id], PB = F.persons[an.B.p.id];
+  if (PA && PB && PA.nearest && PB.nearest && F.familySize >= 4){
+    const aN = an.A.name, bN = an.B.name;
+    if (PA.nearest.id === an.B.p.id && PB.nearest.id === an.A.p.id){
+      out.push("Out of everyone in this family, you are each other's closest match. Neither of you resembles anybody else here more.");
+    } else if (PA.furthest.id === an.B.p.id && PB.furthest.id === an.A.p.id){
+      out.push("You are each other's farthest point in this family — nobody stretches either of you more than the other does.");
+    } else if (PA.nearest.id === an.B.p.id && PB.furthest.id === an.A.p.id){
+      out.push("And one strange, true pair of facts: " + bN + " is the closest profile in this family to " + aN + " — while " + aN + " is the farthest in it from " + bN + ". Both at once. Nobody sits nearer to " + aN + "; nobody stretches " + bN + " further.");
+    } else if (PB.nearest.id === an.A.p.id && PA.furthest.id === an.B.p.id){
+      out.push("And one strange, true pair of facts: " + aN + " is the closest profile in this family to " + bN + " — while " + bN + " is the farthest in it from " + aN + ". Both at once. Nobody sits nearer to " + bN + "; nobody stretches " + aN + " further.");
+    }
   }
   if (pf.approx){
     out.push("One caveat: at least one of these answer sheets was reconstructed from recorded scores, so treat the question-level counts as close estimates.");
@@ -1301,6 +1495,7 @@ function pairTypeLabel(an, pf, F){
   if (an.pairingType === "pace") return "Same priorities, different clocks";
   if (an.pairingType === "priority") return "Same speed, different cargo";
   if (an.pairingType === "center") return "Two flexible profiles";
+  if (an.paceGap >= 40) return "Same cargo, different clocks";
   return "Same side of the map";
 }
 

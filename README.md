@@ -34,7 +34,7 @@ house number updates itself.
 | `compare.js` | The reading layer. Hand-written reads (`PERSON_READS` by id, `PAIR_READS` by sorted `"idA|idB"`), generated receipts that quote live numbers, the five scales, generic fallbacks for anyone new. |
 | `disc-copy.js` | Original report copy (profile names, four-dimension write-ups), kept in the "From the original report" fold. |
 | `app.js` | Scoring (do not change the math), rendering, routing. Five views: home, person, pair, family, method. |
-| `verify.js` | `node verify.js` — renders all 84+ pages in Node and fails on `undefined`, `NaN`, unbalanced tags, or classes with no CSS. Run before every push. |
+| `verify.js` | `node verify.js` — renders every page the site can produce (all people, all ordered pairs, home, family, method) in Node and fails on `undefined`, `NaN`, unbalanced tags, or classes with no CSS. Run before every push. |
 
 ## Adding or updating a person
 
