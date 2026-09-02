@@ -1,91 +1,147 @@
-/* compare.js — the reading layer.
-   Math first (snapshots, sliders, continua), then the writing:
-   PERSON_READS / PAIR_READS are hand-written for the people currently in
-   people.js, keyed by id. Anyone added later gets a generated read until a
-   bespoke one is written — see README. Every number quoted in generated copy
-   comes live from FACTS (facts.js), so data edits update the prose.
-
-   House rule on hedging: the honesty note lives once, in the page footer.
-   Body copy is allowed to say things. */
+/* Family comparison from two sliders (pace, priority) and comparison continua.
+   Does not rescore DISC. Reads N from a person object (result.N or N). */
 
 const EVEN_BAND = 20;
 const VERY_BAND = 80;
 const TINY_CONT = 10;
+const SIMILAR_CONT = 15;
 
-function clamp100(n){ return Math.max(0, Math.min(100, n)); }
-function firstName(p){ return String(p.name || "").split(" ")[0]; }
-function Nof(p){ return (p.result && p.result.N) ? p.result.N : p.N; }
+function clamp100(n){
+  return Math.max(0, Math.min(100, n));
+}
+function firstName(p){
+  return String(p.name || "").split(" ")[0];
+}
+function Nof(p){
+  return (p.result && p.result.N) ? p.result.N : p.N;
+}
 function orderOf(p){
-  if (p.result && p.result.order) return p.result.order;
-  if (p.order) return p.order;
+  if(p.result && p.result.order) return p.result.order;
+  if(p.order) return p.order;
   const N = Nof(p);
   return ["D","I","S","C"].sort((a,b)=>N[b]-N[a]);
 }
+function keyOf(p){
+  if(p.result && p.result.key != null) return p.result.key;
+  return p.key || "";
+}
 function shapeOf(p){
-  if (p.result && p.result.shape) return p.result.shape;
+  if(p.result && p.result.shape) return p.result.shape;
   return p.shape || "";
 }
 function netsOf(N){
   return {
     pace: (N.D + N.I) - (N.S + N.C),
-    pri:  (N.D + N.C) - (N.I + N.S)
+    pri: (N.D + N.C) - (N.I + N.S)
   };
 }
 
 function paceWords(n){
-  if (Math.abs(n) < 8)  return {key:"even", phrase:"an even pace", short:"even pace", pole:"mixed", dir:0, lean:"mixed", word:"even"};
-  if (Math.abs(n) < EVEN_BAND){
-    const f = n > 0;
-    return {key:f?"fast":"slow", phrase:f?"a shade quick":"a shade unhurried", short:f?"leans fast":"leans patient", pole:f?"fast":"slow", dir:f?1:-1, lean:f?"fast":"slow", word:f?"quick":"unhurried"};
-  }
-  if (n > 0) return {key:"fast", phrase:(n >= VERY_BAND ? "flat-out fast" : "fast"), short:(n >= VERY_BAND ? "very fast" : "fast"), pole:"fast", dir:1, lean:"fast", word:"fast"};
-  return {key:"slow", phrase:(n <= -VERY_BAND ? "deeply unhurried" : "unhurried"), short:(n <= -VERY_BAND ? "very patient" : "patient"), pole:"slow", dir:-1, lean:"slow", word:"unhurried"};
+  const lean = n > 0 ? "fast" : (n < 0 ? "slow" : "mixed");
+  const word = n > 0 ? "fast" : (n < 0 ? "patient" : "mixed");
+  if(Math.abs(n) < 8) return {key:"even", phrase:"near even on pace", short:"near even", pole:"mixed", dir:0, lean:lean, word:word};
+  if(Math.abs(n) < EVEN_BAND) return {key:lean, phrase:"slightly "+word, short:"slight "+word, pole:lean, dir:n>0?1:-1, lean:lean, word:word};
+  if(n > 0) return {key:"fast", phrase:(n >= VERY_BAND ? "very fast" : "fast"), short:(n >= VERY_BAND ? "very fast" : "fast"), pole:"fast", dir:1, lean:"fast", word:"fast"};
+  return {key:"slow", phrase:(n <= -VERY_BAND ? "very patient" : "patient"), short:(n <= -VERY_BAND ? "very patient" : "patient"), pole:"slow", dir:-1, lean:"slow", word:"patient"};
 }
 function priWords(n){
-  if (Math.abs(n) < 8)  return {key:"even", phrase:"evenly split between the people and the plan", short:"both-and", pole:"mixed", dir:0, lean:"mixed"};
-  if (Math.abs(n) < EVEN_BAND){
-    const t = n > 0;
-    return {key:t?"task":"people", phrase:t?"tilted toward the plan":"tilted toward the people in the room", short:t?"leans plan":"leans people", pole:t?"task":"people", dir:t?1:-1, lean:t?"task":"people"};
+  const lean = n > 0 ? "task" : (n < 0 ? "people" : "mixed");
+  if(Math.abs(n) < 8) return {key:"even", phrase:"near even on people vs the work", short:"near even", pole:"mixed", dir:0, lean:lean};
+  if(Math.abs(n) < EVEN_BAND){
+    const phrase = lean === "task" ? "slightly on the work" : "slightly on the people in the room";
+    return {key:lean, phrase:phrase, short:"slight "+lean, pole:lean, dir:n>0?1:-1, lean:lean};
   }
-  if (n > 0) return {key:"task", phrase:(n >= VERY_BAND ? "all about the plan" : "focused on the plan"), short:"plan-first", pole:"task", dir:1, lean:"task"};
-  return {key:"people", phrase:(n <= -VERY_BAND ? "all about the people in the room" : "focused on the people in the room"), short:"people-first", pole:"people", dir:-1, lean:"people"};
+  if(n > 0) return {key:"task", phrase:(n >= VERY_BAND ? "strongly on the work" : "on the work"), short:(n >= VERY_BAND ? "strongly task" : "task"), pole:"task", dir:1, lean:"task"};
+  return {key:"people", phrase:(n <= -VERY_BAND ? "strongly on the people in the room" : "on the people in the room"), short:(n <= -VERY_BAND ? "strongly people" : "people"), pole:"people", dir:-1, lean:"people"};
 }
 
 function continuaPositions(N, nets){
+  const pace = nets.pace, pri = nets.pri;
   return {
-    pace:     clamp100(50 + nets.pace / 2),
-    priority: clamp100(50 + nets.pri / 2),
-    frank:    clamp100(50 + (N.D - N.S) / 2),
+    pace: clamp100(50 + pace / 2),
+    priority: clamp100(50 + pri / 2),
+    frank: clamp100(50 + (N.D - N.S) / 2),
     outgoing: clamp100(50 + (N.I - N.C) / 2),
-    daring:   clamp100(50 + (N.D - N.C) / 2)
+    daring: clamp100(50 + (N.D - N.C) / 2)
   };
 }
 
 const CONTINUA_META = [
-  {id:"pace",     left:"Patient",                right:"Driven",    always:true},
-  {id:"priority", left:"The people in the room", right:"The plan",  always:true},
-  {id:"frank",    left:"Tactful",                right:"Frank",     always:false},
-  {id:"outgoing", left:"Private",                right:"Outgoing",  always:false},
-  {id:"daring",   left:"Careful",                right:"Daring",    always:false}
+  {id:"pace", left:"Patient", right:"Driven", group:"pace", always:true, family:"pace"},
+  {id:"priority", left:"The people in the room", right:"The work", group:"priority", always:true, family:"priority"},
+  {id:"frank", left:"Tactful", right:"Frank", group:"ds", always:false, family:"ds"},
+  {id:"outgoing", left:"Private", right:"Outgoing", group:"ic", always:false, family:"ic"},
+  {id:"daring", left:"Careful", right:"Daring", group:"dc", always:false, family:"dc"}
 ];
 
-function letterBandOf(n){ return n >= 65 ? "High" : (n >= 36 ? "Moderate" : "Low"); }
-function visibleLettersOf(p){
-  const sh = shapeOf(p), N = Nof(p), ord = orderOf(p);
-  if (sh === "balanced") return [];
+function letterSet(p){
+  const N = Nof(p), ord = orderOf(p), sh = shapeOf(p);
+  if(sh === "balanced") return ord.slice(0, 2);
   const out = [ord[0]];
-  if (N[ord[1]] >= 36) out.push(ord[1]);
+  if(N[ord[1]] >= 36) out.push(ord[1]);
   return out;
 }
-
-/* Which letter carries a person's people-lean or plan-lean.
-   High I people-focus is about energy and company; high S people-focus is
-   about care and keeping the group whole. They are not the same thing and the
-   copy never treats them as the same thing. */
-function priVia(N, lean){
-  if (lean === "people") return N.I > N.S ? "I" : (N.S > N.I ? "S" : "IS");
-  if (lean === "task")   return N.C > N.D ? "C" : (N.D > N.C ? "D" : "DC");
-  return null;
+function visibleLettersOf(p){
+  const sh = shapeOf(p);
+  const N = Nof(p);
+  const ord = orderOf(p);
+  if(sh === "balanced") return [];
+  const out = [ord[0]];
+  if(N[ord[1]] >= 36) out.push(ord[1]);
+  return out;
+}
+function letterBandOf(n){
+  return n >= 65 ? "High" : (n >= 36 ? "Moderate" : "Low");
+}
+function clusterPhrase(L, short){
+  if(L === "D") return "already decided";
+  if(L === "I") return "a quicker yes once people feel in";
+  if(L === "S") return "buy-in and runway";
+  if(L === "C") return "the check";
+  return L;
+}
+function hasLetter(p, L){
+  const set = letterSet(p);
+  if(set.indexOf(L) >= 0) return true;
+  const N = Nof(p);
+  return N[L] >= 50;
+}
+function dHeavy(p){
+  const N = Nof(p);
+  return N.D >= 40 && N.D > N.S;
+}
+function sHeavy(p){
+  const N = Nof(p);
+  return N.S >= 45 && N.S > N.D;
+}
+function iPresent(p){
+  const N = Nof(p);
+  const ord = orderOf(p);
+  return N.I >= 35 || ord[0] === "I" || ord[1] === "I";
+}
+function isDI(p){
+  const k = keyOf(p);
+  const ord = orderOf(p);
+  return k === "DI" || (ord[0] === "D" && ord[1] === "I") || (ord[0] === "I" && ord[1] === "D");
+}
+function isDSide(p){
+  const k = keyOf(p);
+  return isDI(p) || k === "D" || k === "DC" || k === "DS" || dHeavy(p);
+}
+function isSI(p){
+  const k = keyOf(p);
+  if(k === "IS" || k === "SI") return true;
+  const N = Nof(p);
+  const gap = Math.abs(N.I - N.S);
+  return N.I >= 36 && N.S >= 36 && gap < 14;
+}
+function primaryLetter(p){
+  return orderOf(p)[0];
+}
+function nearCenter(nets, p){
+  if(Math.abs(nets.pace) < EVEN_BAND && Math.abs(nets.pri) < EVEN_BAND) return true;
+  const spr = p.result && p.result.spread != null ? p.result.spread : p.spread;
+  return spr != null && spr < 16 && Math.abs(nets.pace) < 25 && Math.abs(nets.pri) < 25;
 }
 
 function personSnapshot(p){
@@ -93,1511 +149,1562 @@ function personSnapshot(p){
   const nets = netsOf(N);
   const pw = paceWords(nets.pace);
   const rw = priWords(nets.pri);
+  const pos = continuaPositions(N, nets);
   return {
-    p: p, name: firstName(p), N: N,
-    pace: nets.pace, pri: nets.pri,
-    paceW: pw, priW: rw,
-    pos: continuaPositions(N, nets),
-    shape: shapeOf(p), order: orderOf(p),
+    p: p,
+    name: firstName(p),
+    N: N,
+    pace: nets.pace,
+    pri: nets.pri,
+    paceW: pw,
+    priW: rw,
+    pos: pos,
+    key: keyOf(p) || "mix",
+    shape: shapeOf(p),
+    order: orderOf(p),
+    letters: letterSet(p),
     vis: visibleLettersOf(p),
-    primary: orderOf(p)[0],
-    via: priVia(N, rw.lean),
-    center: Math.abs(nets.pace) < EVEN_BAND && Math.abs(nets.pri) < EVEN_BAND
+    primary: primaryLetter(p),
+    center: nearCenter(nets, p),
+    dHeavy: dHeavy(p),
+    sHeavy: sHeavy(p),
+    iPresent: iPresent(p),
+    di: isDI(p),
+    si: isSI(p),
+    dSide: isDSide(p)
   };
 }
 
 function pairAnalysis(a, b){
-  const A = personSnapshot(a), B = personSnapshot(b);
+  const A = personSnapshot(a);
+  const B = personSnapshot(b);
   const paceGap = Math.abs(A.pace - B.pace);
   const priGap = Math.abs(A.pri - B.pri);
   const largerGap = Math.abs(paceGap - priGap) < 8 ? "both" : (paceGap >= priGap ? "pace" : "priority");
+
+  const samePace = A.paceW.lean === B.paceW.lean && A.paceW.lean !== "mixed";
+  const samePriority = A.priW.lean === B.priW.lean && A.priW.lean !== "mixed";
+  const sameSide = samePace && samePriority;
+  const bothEven = A.paceW.pole === "mixed" && B.paceW.pole === "mixed" && A.priW.pole === "mixed" && B.priW.pole === "mixed";
+
   const differentPace = (A.paceW.lean === "fast" && B.paceW.lean === "slow") || (A.paceW.lean === "slow" && B.paceW.lean === "fast");
   const differentPri = (A.priW.lean === "task" && B.priW.lean === "people") || (A.priW.lean === "people" && B.priW.lean === "task");
+
   let pairingType;
-  if (A.center && B.center) pairingType = "center";
-  else if (differentPace && differentPri) pairingType = "both";
-  else if (differentPace) pairingType = "pace";
-  else if (differentPri) pairingType = "priority";
+  if(A.center || B.center) pairingType = "center";
+  else if(differentPace && differentPri) pairingType = "both";
+  else if(differentPace && !differentPri) pairingType = "pace";
+  else if(!differentPace && differentPri) pairingType = "priority";
   else pairingType = "same-side";
-  const continua = CONTINUA_META.map(m=>({
-    id:m.id, left:m.left, right:m.right, always:m.always,
-    posA:A.pos[m.id], posB:B.pos[m.id], gap:Math.abs(A.pos[m.id]-B.pos[m.id])
-  }));
-  const always = continua.filter(c=>c.always);
-  const extras = continua.filter(c=>!c.always).sort((x,y)=>y.gap-x.gap);
-  const top = always.concat(extras.filter(c=>c.gap >= TINY_CONT).slice(0,2));
-  if (top.length < 4) extras.forEach(c=>{ if (top.length < 4 && !top.some(t=>t.id===c.id)) top.push(c); });
-  const diffs = ["D","I","S","C"].map(d=>({d, a:A.N[d], b:B.N[d], diff:A.N[d]-B.N[d], abs:Math.abs(A.N[d]-B.N[d])}))
-    .sort((x,y)=>y.abs-x.abs);
-  return {A, B, paceGap, priGap, largerGap, differentPace, differentPri, pairingType, continua, topContinua:top, diffs};
-}
 
-/* ============================== language ============================== */
-
-const LETTER_WORD = {D:"drive", I:"influence", S:"steadiness", C:"conscientiousness"};
-function an(word){ return (/^[aeiou]/i.test(word) ? "an " : "a ") + word; }
-const LETTER_GLOSS = {
-  D:"taking charge and pushing through",
-  I:"energy, persuasion, and company",
-  S:"patience, loyalty, and an even keel",
-  C:"precision, standards, and getting it right"
-};
-
-/* ============================ person reads ============================ */
-/* Keyed by id. A person not listed here gets genericPersonRead().
-   These describe the person's own wiring from their own scores; every
-   family-relative claim lives in the generated receipts instead, so it stays
-   true as people are added. */
-
-const PERSON_READS = {
-
-alex: {
-  hero: "Motion is the native language.",
-  read: [
-    "Your scores don't describe a mood; they describe a direction. I 71 and D 60 on top, S 23 and C 13 at the bottom — everything about you points forward and outward. You experience a decision as a door: it's open or it's closed, and the worst state it can be in is ajar. So you close it. Then you announce it, because a decision nobody heard barely counts as one.",
-    "The influence is the bigger of your two engines, and it matters which one leads. Drive with influence out front doesn't conquer a room — it recruits one. You don't want to win the argument as much as you want everyone on the bus while it's moving: you'll hand out the good seats, do the bit, take the temperature, and close. But the influence is built for momentum, not maintenance. Long after the yes, when a plan needs tending and follow-up and gentle checking-in, that's the stretch of people-work you never signed up for.",
-    "Say it plainly, because people get this wrong about profiles like yours: your people-focus is not the caretaking kind. An I of 71 over an S of 23 means you're tuned to a room's energy, not its comfort. You notice who's in, who's lit up, who's playing along, long before you'd notice who's quietly tired. That isn't a defect to fix — it's a division of labor. Others are wired to watch the comfort. You're wired to give everyone something worth gathering for.",
-    "At a table you propose first, and you treat the first silence as agreement, because in your grammar it is — if you disagreed, you'd say so, immediately, possibly mid-sentence. The steadier people around you run the opposite grammar: their silence means processing, and the processing means they care enough to do it right. You already know how this goes wrong. You call the restaurant while they're still weighing it — to you that's service, someone had to — and to them the weighing was the point.",
-    "Under pressure you speed up. Certainty rises, the humor sharpens, and patience — never your deep reserve — goes first. You are at your most persuasive at exactly the moments you should be double-checking, which is a dangerous gift. A C of 13 means the fine print has never once been where your eyes went first. When it matters, borrow someone else's eyes, and actually wait for them."
-  ],
-  annoy: [
-    "“Let me think about it” with no return date. You'd take a fast no over a slow maybe every day of the week.",
-    "Reopening a decision that was already made. The meeting happened. Why is it happening again.",
-    "Explaining the plan a second time, slower, to the same people.",
-    "Silence after you pitch something. You'll fill it, and then be annoyed that you had to.",
-    "Process for its own sake — steps and approvals that exist because they exist.",
-    "Being told to slow down when nothing is actually wrong."
-  ],
-  light: [
-    "An instant, unqualified yes. Not “sounds interesting.” Yes.",
-    "Someone who matches your energy and raises it a notch.",
-    "Being asked “so what's the plan?” — the question you were built to answer.",
-    "A big swing that lands, with witnesses.",
-    "Tonight instead of someday."
-  ],
-  living: [
-    "Give Alex a verdict the same day, even if it's no. A fast no is respect; a slow maybe reads as a no you're too polite to say.",
-    "“I'm in — details tomorrow” beats going quiet. Quiet is the one answer he has no slot for.",
-    "Don't make him re-win an argument he already won. If you want to reopen it, bring something new.",
-    "When he's mid-pitch, a concrete question slows him down better than a stall ever will.",
-    "If you need him to wait, give the wait a shape. “Yes or no by Thursday” works. “We'll see” doesn't."
-  ]
-},
-
-derek: {
-  hero: "Says less. Means all of it.",
-  read: [
-    "C 64 and S 54 on top, with I down at 18: you're built for accuracy in an unhurried frame. You don't think out loud — you think, and then, if it's useful, you talk. The gap between what you notice and what you say is enormous, and most of what's interesting about you lives in it.",
-    "Your standard is internal. Praise doesn't move it, hype offends it, and being watched doesn't change it — the work is either right or it isn't, and you'd know at two in the morning with nobody looking. That's why compliments slide off you, and why one specific, accurate observation about something you built lands harder than a round of applause.",
-    "The D of 31 tells the quiet truth: you don't want the wheel. You have no appetite for controlling people — you audit outcomes, not humans. You'll let a flawed plan roll a surprisingly long way if nobody asks you, not out of spite but because unrequested opinions are, in your book, a kind of shoving. Ask directly and you get the whole map, load-bearing problems marked in order of severity.",
-    "Under pressure you go quieter and closer to the problem. From the outside it can look like withdrawal, or a mood; it's concentration with the ringer off. The risk was never that you'd say the wrong thing — you almost never do. The risk is the right thing going unsaid past the moment somebody needed it."
-  ],
-  annoy: [
-    "Overselling. Adjectives doing the work that numbers should be doing.",
-    "Being asked to perform enthusiasm on cue.",
-    "Sloppy work waved through with a shrug — especially by people who could do better.",
-    "A verdict demanded before the checking is done.",
-    "Vague answers to precise questions.",
-    "The standard changing halfway through the job."
-  ],
-  light: [
-    "A thing built properly. Anyone's thing.",
-    "A precise question that proves the asker thought first.",
-    "Being consulted as the reference, without ceremony.",
-    "The flaw he flagged early turning out to be exactly what mattered.",
-    "Getting it right, quietly, and someone noticing without him pointing at it."
-  ],
-  living: [
-    "Ask Derek the precise question, then actually wait. The pause is him assembling the complete answer, not reluctance.",
-    "Show him the details before the pitch. He trusts documents more than delivery.",
-    "His “that works” is a standing ovation. Calibrate accordingly.",
-    "Don't drag him toward enthusiasm. Bring him toward accuracy — that's where his warmth lives."
-  ]
-},
-
-ashley: {
-  hero: "The quiet engine.",
-  read: [
-    "Your four scores sit unusually close together — C 48, D 43, S 43, I 33 — and the two that lead are a pointed combination: standards, with drive right behind them. Careful first, forceful a half-step back. You read as composed, reasonable, unhurried. The composure is real. So is the engine idling under it.",
-    "You're the person who decided the meeting's outcome before the meeting, then let the meeting believe it got there on its own. That isn't manipulation — it's efficiency. Open contests cost time and dignity, and you can usually route around them. But when something matters, you intend to win it, and you generally have a plan that predates anyone else noticing there was a contest.",
-    "The C in front means the win has to be earned properly: done right, defensible, no loose ends left for anyone to pull. You hold yourself to a standard you mostly don't bother explaining, and you extend everyone else a professional courtesy — you assume they're doing their best, and quietly recalibrate how much to hand them when they're not.",
-    "Your I of 33 isn't shyness; it's economy. You don't perform, don't fill silence, don't sell what should sell itself. The cost of the economy is that people can miss how much conviction you're carrying, because it arrives in a level voice. Yours is the easiest strength in a loud room to underestimate — which, be honest, you don't entirely mind.",
-    "Under pressure you get more organized. Lists appear. Scope gets cut. You'll carry more than your share without announcing it, right up until you announce all of it at once. The people around you would rather have the running total."
-  ],
-  annoy: [
-    "Being micromanaged — or simply watched while you work.",
-    "Being underestimated, then congratulated for the thing you said would happen.",
-    "Inefficiency tolerated out of politeness.",
-    "Having to perform excitement before people will believe you're on board.",
-    "People who narrate instead of doing.",
-    "Effort presented as if it were a finished result."
-  ],
-  light: [
-    "Being handed the hard thing and left alone with it.",
-    "A plan of yours surviving contact with reality untouched.",
-    "Quietly clearing a bar that somebody set too low.",
-    "Competence getting noticed without you having to raise it.",
-    "A level-voiced “done” that closes a thing forever."
-  ],
-  living: [
-    "Give Ashley the outcome, not the method. She'll beat your method.",
-    "Ask her opinion directly. She won't fight for airtime, and the room loses when she doesn't get it.",
-    "Don't mistake the level voice for low stakes. The flatter the delivery, the more she's already decided.",
-    "Credit her specifically and briefly. A paragraph embarrasses; a sentence lands."
-  ]
-},
-
-renee: {
-  hero: "Runs the version of the future that actually happens.",
-  read: [
-    "C 55, S 48: you plan, and the plan holds. Where other people see an event, you see a sequence — who's driving, when it actually starts, what happens if it rains. By the time you say yes to something you've already lived through it once in your head, which is why your yes is worth more than most people's enthusiasm.",
-    "Your I of 27 means you spend nothing on performance, and it comes across as a calm that people can misread. You have preferences — strong ones, carefully arrived at — and you deliver them once, at conversational volume. In a loud room, that can make the best-thought-out opinion at the table the one that goes unheard. You've learned to live with that more than you should have to.",
-    "The care you give people is logistical, and it is care: the remembered detail, the handled arrangement, the thing someone mentioned once showing up at the right moment. You love in the future tense — by making sure the day goes right before it arrives. People who only count warmth in hugs and speeches will miss half of yours.",
-    "Under pressure you tighten the plan. More lists, earlier starts, backup options. Chaos doesn't frighten you; it offends you, because most of it was preventable on Tuesday. The risk is carrying the whole scaffolding yourself and letting nobody see the weight until it's heavy."
-  ],
-  annoy: [
-    "Last-minute changes. A changed plan isn't an inconvenience — it's the death of a small thing you built.",
-    "“We'll figure it out when we get there.”",
-    "Your calm being read as having no preference.",
-    "Enthusiasm treated as a substitute for a plan.",
-    "Being handed the logistics by default and thanked in passing.",
-    "Lateness that was foreseeable from space."
-  ],
-  light: [
-    "A plan running exactly as designed — and nobody needing to know why it went smoothly.",
-    "Thought reciprocated: someone planning around you, for once.",
-    "Being able to hand something off and genuinely not think about it again.",
-    "The contingency you prepped quietly saving the day.",
-    "A calendar that holds."
-  ],
-  living: [
-    "Give Renee notice. Days, not hours. Changes cost her more than they look like they cost.",
-    "Ask for her feasibility read early. She has usually already run the simulation.",
-    "When she states a preference once, treat it as said. She won't repeat it louder — she'll just file where it landed.",
-    "Thank her for the invisible parts. She notices which parts you noticed."
-  ]
-},
-
-mike: {
-  hero: "Ease, on purpose.",
-  read: [
-    "S 55, C 44, I 42 — three letters in a near-tie behind an easy front, and a D of 26 that tells you the organizing truth: you have almost no appetite for making people do things, and you've built an entire style around never needing to. You keep things running and you keep them light, and you've correctly decided those are the same job.",
-    "The I of 42 is higher than people would guess from your volume. You're genuinely social — the jokes, the warmth, the well-timed line — but it's hosting energy, not headlining energy. You read the room and then work it gently from the middle: keep it comfortable, keep it moving, keep anyone from becoming the target, including you.",
-    "You go along easily, and that's mostly real — most of your preferences genuinely are mild. The catch is the word mostly. When you do care, it comes out at the same easy volume as when you don't, and people who've learned that your default is “whatever works” can miss the one time in ten it isn't. The peacekeeping runs deep enough that you'll absorb a real cost rather than make a scene about one, and only the people paying close attention ever find out.",
-    "Under pressure you de-escalate: humor first, then patience, then distance. You'd rather defuse than win, which makes you the person other people are calmest around — while whatever is actually bothering you takes the long way out."
-  ],
-  annoy: [
-    "Being made to pick a side.",
-    "Drama manufactured out of nothing.",
-    "Being managed, hurried, or voluntold.",
-    "Heaviness where lightness would have done the job.",
-    "Someone souring a room and being allowed to.",
-    "The joke landing and somebody explaining it."
-  ],
-  light: [
-    "Easy company with no agenda.",
-    "A running joke maturing over years.",
-    "Plans that stay loose and still happen.",
-    "Everyone getting along without being told to.",
-    "Being included without being assigned."
-  ],
-  living: [
-    "Ask Mike what he actually wants — then ask once more. The first answer is the sociable one; the second is the real one.",
-    "Don't confuse agreeable with indifferent. He has a read on everything; he's just not selling it.",
-    "Keep invitations low-pressure. He shows up best when showing up was easy.",
-    "When he goes quiet-and-pleasant, something's wrong. That is the loudest he complains."
-  ]
-},
-
-elliana: {
-  hero: "Whoever the room needs.",
-  read: [
-    "S 44, D 43, C 43, I 37 — seven points from your top score to your bottom one. The instrument was built to sort people, and with you it couldn't. That's not a weak signal; that is the finding. You genuinely run different modes in different rooms — you can push or wait, structure or improvise, steer or match — and none of those is a costume. They're all natively yours.",
-    "People with one loud letter get the luxury of being predictable. You get a different power and a different tax. The power: you're the one who can talk to everybody, because you meet drive with drive, care with care, precision with precision. The tax: ask five people to describe you and you'll get five different answers, each of them certain, and every one of them partial. People typecast you as whichever version of you they've spent the most rooms with.",
-    "Your flexibility is smooth enough to be invisible even to you. You absorb the shape a situation needs before checking whether you wanted to — and the wanting is in there; it just files itself last. The question that unlocks you isn't “what are you like?” It's “what do you want tonight?”, asked by someone willing to wait out the small pause while you check.",
-    "Under pressure you flex first: you take whatever role is missing — the calm one in chaos, the driver when it drifts, the checker when it's sloppy. Useful, every time. But anyone watching closely should notice that you are always the variable, and ask now and then who's flexing for you."
-  ],
-  annoy: [
-    "Sentences that begin with “you always.”",
-    "Being asked to be simpler than you are.",
-    "Getting cast permanently in whatever role you played last.",
-    "People who need you to match them every time and call it closeness.",
-    "Being read as indecisive when you're mid-calibration."
-  ],
-  light: [
-    "Being read correctly — someone asking which mode you're in instead of guessing.",
-    "Rooms different enough to use the whole range.",
-    "Being the translator between two people who can't hear each other.",
-    "Going first, for once, about what you want."
-  ],
-  living: [
-    "Ask which version of the plan Elliana actually prefers. She has one; it's parked behind the accommodation.",
-    "Don't file her under one letter. The letter changes by room — that's the point of her.",
-    "Notice which company brings out which Elliana. She notices that you noticed.",
-    "When she takes over, something was missing — it's not about the wheel. She'll hand it back."
-  ]
-},
-
-sofia: {
-  hero: "Steady is a skill.",
-  read: [
-    "S 57 and C 49 over D 36 and I 25: an even keel with a good compass. You're hard to rattle, slow to spend words, and constitutionally allergic to drama — not because it wounds you but because it's inefficient. Things that put other people into orbit get, from you, a beat, a look, and a reasonable next step.",
-    "Steady is not the same as soft, and yours is the profile people most often get wrong. Your steadiness isn't about hovering over everyone's feelings — the I of 25 says you're not performing warmth or working a crowd, and you never will. It's about being constant: you say what you'll do, at the volume you'll do it, and then you do it. Reliability is your first language, spoken so fluently that people stop hearing it — which is the one quiet injustice of being you.",
-    "The C of 49 gives the keel its compass. You have opinions — considered, specific, usually right about practical things — and you release them on a need-to-know basis. Not timidity; economy. If the group is landing on the right answer anyway, why spend the words? The side effect is that a room can genuinely not know you disagreed until the one time you say so plainly, at which point everyone recalibrates fast.",
-    "Under pressure you get quieter and more capable — the useful one while other people are busy reacting. You'll absorb a lot without flagging it, on the theory that flagging it makes it everyone's problem. The people who love you have to learn to ask before it gets heavy, because you file “handling it” under handled."
-  ],
-  annoy: [
-    "The spotlight swung onto you without warning.",
-    "Quiet mistaken for having nothing to say.",
-    "Being rushed mid-task by somebody who just now thought of the task.",
-    "Chaos for its own sake — noise, drama, plans that thrash.",
-    "Loud certainty from people who haven't thought it through.",
-    "Being asked if you're okay a third time after you already answered."
-  ],
-  light: [
-    "Being counted on and delivering. The whole loop, start to finish.",
-    "Small-circle time where nothing has to be performed.",
-    "A finished thing, done right, off the list.",
-    "Someone remembering the thing you said once, quietly.",
-    "A day that goes to plan."
-  ],
-  living: [
-    "Ask Sofia directly and give the answer room to arrive. She speaks when the sentence is finished, not before.",
-    "Don't rush her transitions. Her momentum is continuity, not speed.",
-    "Her quiet yes is a real yes. Her quiet no, when it finally surfaces, was final a while ago — catch it early by actually asking.",
-    "Skip the pep talk. Give her the plan, the facts, and the time, and she'll hand you back certainty."
-  ]
-},
-
-colin: {
-  hero: "Still waters, load-bearing.",
-  read: [
-    "S 71. Start there, because everything else about you is downstream of it. That's not mild agreeableness — it's structural steadiness, the deep kind: the same person on Tuesday that you are on Saturday, the same in a crisis that you are at dinner. With a C of 57 beside it, it makes you a fixed point — consistent, thorough, allergic to fuss, and done with things only when they're actually done.",
-    "Your I of 15 is the other pole, and it's just as informative. Performing — small talk, selling, being on — isn't hard for you so much as pointless: a currency you don't spend because you've never seen it buy anything real. You don't warm up to people; you let them in, which is slower and worth more. The short list of people who've been let in would describe someone strangers wouldn't recognize — funnier, more opinionated, more watchful than anyone guesses.",
-    "You process before you speak. Every time, at your own speed, in your own order. The pause that makes fast people twitch is not hesitation and it is not absence — it's composition. When the sentence comes, it's usually the finished one. The tax is real, though: in quick rooms, decisions can get made on top of you while your answer was still in the shop. It reads like you not minding. You mind.",
-    "The D of 23 doesn't mean you can't hold a line — it means you don't reach for the wheel. But on the things that are yours, the line does not move. Anyone who has tried to rush you off a standard you actually hold has learned the difference between quiet and soft.",
-    "Under pressure you slow down and hold. You get more methodical while everyone else gets louder, which makes you the person to want nearby when it's real — and the one most likely to be asked “are you even worried?” You are. It's just already been converted into doing the next right thing."
-  ],
-  annoy: [
-    "Being rushed mid-anything. The task had an order.",
-    "Plans changing at the last minute for reasons that amount to a mood.",
-    "Being put on the spot in a group.",
-    "Someone finishing your sentence — and getting it wrong.",
-    "“Quick questions” that are actually large.",
-    "Volume used as an argument."
-  ],
-  light: [
-    "Routine that holds.",
-    "Being trusted to do it his way, at his pace, without a check-in.",
-    "Loyalty running both directions over years.",
-    "A finished thing that was done right the first time.",
-    "Company that doesn't require performing. Parallel quiet counts."
-  ],
-  living: [
-    "Give Colin lead time. A change he got yesterday is a plan; a change he gets in the moment is a demand.",
-    "Ask, then genuinely wait. Filling the pause costs you the finished answer.",
-    "One change at a time. Three at once reads as a plan with no author.",
-    "Don't raise the volume to get a response — it produces the opposite. Bring him the thing early and quietly, and he's the steadiest yes in the house."
-  ]
-},
-
-kate: {
-  hero: "Warm the way a house is warm.",
-  read: [
-    "S 69 with I 40: steadiness that leans toward people. Pure steadiness holds the ground; pure influence works the crowd; you do the third thing — you gather. Your instinct in any room is to make it one room: everyone fed, everyone included, nobody stranded at the end of the table. You do it so naturally that it looks like the evening simply went well on its own.",
-    "The warmth is real, not performance. Yours is the influence that remembers names and notices absences, not the kind that needs a stage. And under it the steadiness runs deep: loyal, patient, consistent, in for the long haul. People clock you as kind within minutes and they're right — what they miss is the durability. You're not warm the way weather is warm. You're warm the way a house is.",
-    "Your D of 20 means you'd rather absorb a cost than fight about one, and your C of 37 means rules exist to serve people, never the other way around. That combination makes you the natural peacemaker — and the person most at risk of swallowing something hard whole to keep an evening intact. The people around you should know the price of the smoothing, because you will never send the invoice.",
-    "Under pressure you tend people first. Everyone else's landing gets checked before your own, and you'll under-report your own weather for weeks if reporting it would make it someone's problem. The move that helps most is the one that feels least natural: the hard thing said early and gently, before it ever needs to be said at volume."
-  ],
-  annoy: [
-    "Conflict at the table — especially the avoidable kind.",
-    "Harshness passing itself off as honesty.",
-    "Someone being left out while nobody else even notices.",
-    "Being pressed to decide fast when the decision lands on people.",
-    "Cold efficiency where warmth would have cost nothing."
-  ],
-  light: [
-    "Everyone together and easy. That's the whole point.",
-    "Being the reason the room felt good — even uncredited.",
-    "Traditions that repeat and mean something.",
-    "Laughter with no agenda.",
-    "Watching two people she loves finally get along."
-  ],
-  living: [
-    "Don't make Kate the referee. She'll take the job, and it costs her more than it costs either side.",
-    "Ask what she wants, not just what's fine. “Fine” is her most fluent language and her least honest.",
-    "Hard news: early and gently beats late and loud, every time.",
-    "Protect the gatherings she builds. They look effortless. They're her masterwork."
-  ]
-},
-
-cherie: {
-  hero: "Warmth that stays.",
-  read: [
-    "S 60 and I 57 — a three-point gap, which is to say no gap at all. Warmth that reaches out and steadiness that stays put are usually a trade-off; you post them as a tie, and the free self-ratings call the same tie from the other side, 3.8 to 3.7 in the other order. Point any instrument at you and it comes back with one reading: people, twice, and nothing else close.",
-    "The bottom of the profile says as much as the top. D 24 and C 26 mean that steering people and perfecting things barely register as ways you move through a day — and the note on this page says even those numbers probably run high. Subtract drive and scrutiny, and what's left is a person whose whole attention is free for the room: who's here, how they actually are, whether they know they're wanted. Not as a job, the way a host runs a table. As a default, the way a lamp is on.",
-    "It's worth naming what kind of people-focus this is, because it isn't the spotlight kind. You don't need the stage any more than you need the wheel. It's proximity: you'd rather be in the middle of everyone's lives than in front of them — the check-in, the remembered detail, the follow-up about a thing from three weeks ago that the person who said it forgot they'd mentioned. People walk away from you feeling specifically liked, not generally entertained. That is a different craft, and a rarer one.",
-    "Your pace sits almost dead even, and that's not indecision — it's that speed was never the point. You move at whatever tempo keeps people together, which makes you flexible about nearly everything except the one thing: a decision that costs somebody something. Efficiency arguments do not move you there. You'll take the longer route, the later dinner, the worse logistics, every time, if the shorter way leaves someone out — and you don't present it as a sacrifice, which is why half of them are never even noticed.",
-    "Under pressure you go toward people: checking in, smoothing, holding the group's threads while the problem does its worst. What you don't do is escalate. With barely any D in the mix, your anger tends to arrive as hurt, and your hurt arrives quietly — so the people who love you have to learn that a subdued Cherie is a signal flare, not a mood. The plan can fail. The people can't. That's the whole architecture."
-  ],
-  annoy: [
-    "Being the only one tending the group while everyone else somehow “didn't notice.”",
-    "Coldness in the name of efficiency — the plan treated as more real than the people in it.",
-    "Someone left out, and the room shrugging.",
-    "The sharp version of a sentence, chosen when the kind version was right there.",
-    "A warm moment getting nitpicked to death.",
-    "Being managed."
-  ],
-  light: [
-    "Everyone in one place, no agenda, nobody watching the clock.",
-    "Being sought out — the call, the visit, the “I was thinking about you” arriving inbound for once.",
-    "An introduction she made, taking on a life of its own.",
-    "The thing she mentioned once, remembered.",
-    "A day quietly rearranged around a person, with nobody needing convincing."
-  ],
-  living: [
-    "Reciprocate the noticing. Cherie runs most of her warmth outbound; one inbound check-in is worth ten thank-yous.",
-    "Don't argue efficiency when the cost lands on a person. Restate the plan in terms of who it's for, and she's your easiest yes.",
-    "A subdued Cherie is not a neutral Cherie. Ask early — quiet is her loudest register.",
-    "Hand her the connecting jobs, and hand the hard-line jobs to someone else. That split isn't a weakness; it's the right tool, twice."
-  ]
-}
-};
-
-/* Fallback for anyone added to people.js before a bespoke read is written. */
-function genericPersonRead(S){
-  const N = S.N, vis = S.vis, name = S.name;
-  const read = [];
-  const scoreLine = "D " + N.D + ", I " + N.I + ", S " + N.S + ", C " + N.C;
-  if (S.shape === "balanced"){
-    read.push("The four scores sit close together — " + scoreLine + " — which means the instrument couldn't sort " + name + " into one style, and that's a result, not a failure. Expect genuine range: different rooms get different modes, and all of them are real.");
-  } else {
-    const lead = vis[0], second = vis[1];
-    read.push(name + " leads with " + LETTER_WORD[lead] + " — " + LETTER_GLOSS[lead] + (second ? " — with " + LETTER_WORD[second] + " close behind, which colors how it shows: " + LETTER_GLOSS[second] + "." : ". The rest of the profile stands well back, so this is the mode people meet."));
-    read.push("The full picture is " + scoreLine + ". " + (S.paceW.pole === "fast" ? "The pace runs quick: decisions feel live early, and waiting has a cost." : S.paceW.pole === "slow" ? "The pace runs unhurried: decisions become real once there's been time to sit with them." : "The pace is flexible — quick when the moment calls for it, patient when it doesn't."));
-    if (S.priW.lean === "people"){
-      read.push(S.via === "I"
-        ? "The people-focus here is the energetic kind — company, momentum, the room lighting up — rather than the caretaking kind."
-        : "The people-focus here is the caretaking kind — an eye on whether everyone is genuinely okay — rather than the spotlight kind.");
-    } else if (S.priW.lean === "task"){
-      read.push(S.via === "C"
-        ? "The plan-focus here runs through standards: things should be done right, and corners have names."
-        : "The plan-focus here runs through results: get to done, fix what breaks on the way.");
-    }
-  }
-  const pools = {
-    D: {annoy:["Waiting on a decision that could be made now.","Being managed in detail."], light:["Owning the call.","A clear finish line."]},
-    I: {annoy:["A flat room.","Enthusiasm treated as naivety."], light:["Company for the plan.","A quick, warm yes."]},
-    S: {annoy:["Being rushed mid-task.","Plans changing at the last minute."], light:["Routines that hold.","Being counted on and delivering."]},
-    C: {annoy:["Sloppiness waved through.","A verdict demanded before the checking is done."], light:["A thing done properly.","Time to get it right."]}
-  };
-  const use = vis.length ? vis : S.order.slice(0,2);
-  const annoy = [], light = [];
-  use.forEach(L=>{ annoy.push.apply(annoy, pools[L].annoy); light.push.apply(light, pools[L].light); });
-  return {
-    hero: S.shape === "balanced" ? "Range the test could measure." : (LETTER_WORD[use[0]].charAt(0).toUpperCase() + LETTER_WORD[use[0]].slice(1)) + " first.",
-    read: read,
-    annoy: annoy,
-    light: light,
-    living: ["A bespoke read hasn't been written for " + name + " yet — the numbers above are live, the prose is generated. See the README for how to add one."]
-  };
-}
-
-/* ======================= generated person facts ======================= */
-
-function ordinal(n){
-  const s = ["th","st","nd","rd"], v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-
-function personReceipts(p, S){
-  const F = (typeof FACTS !== "undefined") ? FACTS : null;
-  if (!F) return [];
-  const me = F.persons[p.id];
-  if (!me) return [];
-  const out = [];
-  const DIMS = ["D","I","S","C"];
-  const n1 = F.familySize - 1;
-
-  if (me.approx){
-    out.push("First, a flag: this answer sheet isn't a recorded sitting — see the note at the top of the page. The question-level counts below describe the reconstruction, not literal picks.");
+  let classic = null;
+  if(pairingType === "both"){
+    const fast = A.pace > B.pace ? A : B;
+    const slow = fast === A ? B : A;
+    if(fast.pri >= 0 && slow.pri < 0) classic = "D/S";
+    else if(fast.pri < 0 && slow.pri >= 0) classic = "I/C";
+    else classic = "D/S";
+  }else if(pairingType === "pace"){
+    if(samePriority && A.priW.lean === "task") classic = "D/C";
+    else if(samePriority && A.priW.lean === "people") classic = "I/S";
+    else classic = (A.pri + B.pri) >= 0 ? "D/C" : "I/S";
+  }else if(pairingType === "priority"){
+    if(samePace && A.paceW.lean === "fast") classic = "D/I";
+    else if(samePace && A.paceW.lean === "slow") classic = "S/C";
+    else classic = (A.pace + B.pace) >= 0 ? "D/I" : "S/C";
   }
 
-  /* polarity: never claimed / never rejected */
-  const neverClaimed = DIMS.filter(d=>me.M[d]===0);
-  const neverRejected = DIMS.filter(d=>me.L[d]===0);
-  if (neverClaimed.length && neverRejected.length){
-    out.push("Twenty-eight questions, each demanding one “most me” and one “least me.” In all fifty-six judgments you never once claimed " +
-      an(neverClaimed.map(d=>LETTER_WORD[d]).join(" or ")) + " answer, and never once rejected " +
-      neverRejected.map(d=>LETTER_WORD[d]).join(" or ") + ".");
-  } else if (neverClaimed.length){
-    out.push("Across 28 questions you never once picked " + an(neverClaimed.map(d=>LETTER_WORD[d]).join(" or ")) + " answer as “most me.” Not once.");
-  } else if (neverRejected.length){
-    out.push("Across 28 questions you never once marked " + an(neverRejected.map(d=>LETTER_WORD[d]).join(" or ")) + " option as “least me.”");
-  }
+  const dVsS = (A.dHeavy && B.sHeavy) || (B.dHeavy && A.sHeavy);
+  const iOverlap = A.iPresent && B.iPresent;
+  const diVsSi = (A.di && B.si) || (B.di && A.si) || (A.dSide && B.si) || (B.dSide && A.si);
+  const sameLetter = A.primary === B.primary && A.shape === "primary" && B.shape === "primary";
 
-  /* dominant claim */
-  const maxMd = DIMS.reduce((a,b)=>me.M[b]>me.M[a]?b:a);
-  if (me.M[maxMd] >= 14){
-    out.push("Of your 28 “most me” picks, " + me.M[maxMd] + " went to " + LETTER_WORD[maxMd] + " — more than half the test.");
-  }
-
-  /* strongest rejection, with family context */
-  const maxLd = DIMS.reduce((a,b)=>me.L[b]>me.L[a]?b:a);
-  if (me.L[maxLd] >= 13){
-    let famNote = "";
-    const allL = [];
-    Object.keys(F.persons).forEach(id=>DIMS.forEach(d=>allL.push({id, d, n:F.persons[id].L[d]})));
-    const famMax = Math.max.apply(null, allL.map(x=>x.n));
-    if (me.L[maxLd] === famMax){
-      const holders = allL.filter(x=>x.n===famMax);
-      famNote = holders.length === 1
-        ? " — the most emphatic “not me” anyone in this family recorded about anything"
-        : " — tied for the most emphatic “not me” in the family";
-    }
-    out.push("You marked the " + LETTER_WORD[maxLd] + " option “least me” " + me.L[maxLd] + " times" + famNote + ".");
-  }
-
-  /* untouched axis — only meaningful when the letter is genuinely low for them */
-  const maxNd = DIMS.reduce((a,b)=>me.neutral[b]>me.neutral[a]?b:a);
-  if (me.neutral[maxNd] >= 17 && me.N[maxNd] < 40){
-    out.push("On " + me.neutral[maxNd] + " of 28 questions you left the " + LETTER_WORD[maxNd] + " option completely untouched — not claimed, not rejected. It isn't that you push it away; it's not the axis you see choices on.");
-  }
-
-  /* perfect balance (flat profiles) */
-  if (DIMS.every(d=>Math.abs(me.M[d]-me.L[d]) <= 1)){
-    out.push("The test asked you to pick a side 28 times. On every single letter you claimed it and rejected it in almost equal measure — D " + me.M.D + " for, " + me.L.D + " against; I " + me.M.I + "/" + me.L.I + "; S " + me.M.S + "/" + me.L.S + "; C " + me.M.C + "/" + me.L.C + ". That is not indecision. That is range, measured.");
-  }
-
-  /* likert floors, ceilings, carve-outs, flips */
-  if (me.lik){
-    const hi = DIMS.filter(d=>me.lik.min[d] >= 4);
-    const lo = DIMS.filter(d=>me.lik.max[d] <= 2);
-    if (hi.length && lo.length){
-      out.push("In the free self-ratings you never scored " + hi.map(d=>an(LETTER_WORD[d]) + " statement").join(" or ") + " below a " + Math.min.apply(null,hi.map(d=>me.lik.min[d])) + ", and never scored " + lo.map(d=>an(LETTER_WORD[d]) + " one").join(" or ") + " above a " + Math.max.apply(null,lo.map(d=>me.lik.max[d])) + ". The forced test and the free one drew the same picture from opposite sides.");
-    } else if (hi.length){
-      out.push("In the free self-ratings you never scored " + hi.map(d=>an(LETTER_WORD[d]) + " statement").join(" or ") + " below a 4.");
-    } else if (lo.length){
-      out.push("In the free self-ratings you never scored " + lo.map(d=>an(LETTER_WORD[d]) + " statement").join(" or ") + " above a 2.");
-    }
-    /* rare carve-outs: one high rating in a sea of lows, or one hard exception in a sea of highs */
-    DIMS.forEach(d=>{
-      const vals = me.lik.vals[d];
-      const lows = vals.filter(v=>v<=2).length, highs = vals.filter(v=>v>=4).length;
-      if (lows >= 5 && me.lik.max[d] >= 4){
-        out.push("Your six " + LETTER_WORD[d] + " self-ratings are almost all floor — except one, a " + me.lik.max[d] + ". There is exactly one flavor of " + LETTER_WORD[d] + " you claim, and everything else about it you left on the shelf.");
-      } else if (highs >= 5 && me.lik.min[d] === 1){
-        out.push("You rated " + LETTER_WORD[d] + " 4s and 5s straight down the column — except a single 1. Even your strongest suit has one deliberate exception.");
-      }
-    });
-    const likTop = me.lik.order[0], forcedTop = me.order[0];
-    if (likTop !== forcedTop && me.lik.avg[likTop] - me.lik.avg[forcedTop] >= 0.2 && me.shape !== "balanced"){
-      let famNote = "";
-      const withLik = Object.keys(F.persons).filter(id=>F.persons[id].lik);
-      const best = withLik.reduce((a,b)=>F.persons[b].lik.avg[likTop] > F.persons[a].lik.avg[likTop] ? b : a);
-      if (best === p.id && withLik.length > 1){
-        famNote = " — the highest " + LETTER_WORD[likTop] + " self-rating of anyone who did the ratings";
-      }
-      out.push("Here's the interesting one. When the test forced a trade, " + LETTER_WORD[forcedTop] + " won. When you could rate yourself freely, with nothing forced to lose, you put " + LETTER_WORD[likTop] + " on top: " + me.lik.avg[likTop].toFixed(1) + " out of 5" + famNote + ". The public answer and the private one are not the same answer.");
-    } else if (likTop === forcedTop && me.lik.avg[likTop] >= 3.8 && me.shape !== "balanced"){
-      out.push("Both ways of asking agree about you. The forced trade-offs crowned " + LETTER_WORD[forcedTop] + "; rating yourself freely, you crowned it again — " + me.lik.avg[likTop].toFixed(1) + " out of 5. The public answer and the private one are the same answer.");
-    } else if (likTop !== forcedTop && me.shape === "blend"){
-      /* photo finish: both methods called it a dead heat between the same two letters */
-      const f2 = [me.order[0], me.order[1]].sort().join("");
-      const l2 = [me.lik.order[0], me.lik.order[1]].sort().join("");
-      const fgap = me.N[me.order[0]] - me.N[me.order[1]];
-      const lgap = Math.round((me.lik.avg[me.lik.order[0]] - me.lik.avg[me.lik.order[1]]) * 10) / 10;
-      if (f2 === l2 && fgap <= 5 && lgap <= 0.3){
-        out.push("The forced test called it " + LETTER_WORD[forcedTop] + " by a nose (" + me.N[forcedTop] + " to " + me.N[me.order[1]] + "). Rating yourself freely, you called it " + LETTER_WORD[likTop] + " by a nose (" + me.lik.avg[likTop].toFixed(1) + " to " + me.lik.avg[me.lik.order[1]].toFixed(1) + "). Two different instruments, one verdict: a genuine dead heat between the same two letters. That tie is the finding.");
-      }
-    }
-  }
-
-  /* single highest / lowest score on the whole board */
-  const myTop = F.topTies.filter(c=>c.id===p.id);
-  if (myTop.length){
-    const others = F.topTies.filter(c=>c.id!==p.id);
-    if (others.length){
-      out.push("Your " + myTop[0].d + " of " + myTop[0].n + " is tied with " + others.map(o=>o.name + "'s " + o.d).join(" and ") + " for the single highest score anyone in this family posted — and " + (others.length===1 ? "the two of them point in opposite directions." : "they point in different directions."));
-    } else {
-      out.push("Your " + myTop[0].d + " of " + myTop[0].n + " is the single highest score anyone in this family posted, on any letter.");
-    }
-  }
-  const myLow = F.lowTies.filter(c=>c.id===p.id);
-  if (myLow.length && !myTop.some(c=>c.d===myLow[0].d)){
-    out.push("Your " + myLow[0].d + " of " + myLow[0].n + " is the single lowest score on the family's whole board" + (F.lowTies.length>1 ? " (shared)" : "") + ". Nobody here rules anything out harder than you rule out " + LETTER_WORD[myLow[0].d] + ".");
-  }
-
-  /* the poles of the house: strongest slider tilt, unless a top-score receipt
-     already told this person's extremity story */
-  if (!myTop.length && !myLow.length && F.familySize >= 4){
-    const myNets = netsOf(me.N);
-    const allNets = Object.keys(F.persons).map(id=>({id, n:netsOf(F.persons[id].N)}));
-    const peopleMost = allNets.reduce((a,b)=>b.n.pri < a.n.pri ? b : a);
-    const planMost   = allNets.reduce((a,b)=>b.n.pri > a.n.pri ? b : a);
-    const fastest    = allNets.reduce((a,b)=>b.n.pace > a.n.pace ? b : a);
-    const patientest = allNets.reduce((a,b)=>b.n.pace < a.n.pace ? b : a);
-    const unique = (val, key)=>allNets.filter(x=>x.n[key]===val).length === 1;
-    if (peopleMost.id === p.id && myNets.pri <= -35 && unique(myNets.pri, "pri")){
-      out.push("No profile in this family tilts harder toward the people in the room than yours. Not the loudest — the most committed: whenever the plan and the people pulled apart on this sheet, the people won.");
-    } else if (planMost.id === p.id && myNets.pri >= 35 && unique(myNets.pri, "pri")){
-      out.push("No profile in this family tilts harder toward the plan than yours: when the plan and the people pulled apart on this sheet, the plan won.");
-    } else if (fastest.id === p.id && myNets.pace >= 35 && unique(myNets.pace, "pace")){
-      out.push("Yours is the fastest profile in the family — no sheet here tilts harder toward Driven.");
-    } else if (patientest.id === p.id && myNets.pace <= -35 && unique(myNets.pace, "pace")){
-      out.push("Yours is the most patient profile in the family — no sheet here tilts harder toward Patient.");
-    }
-  }
-
-  /* the sleeper rank: second-highest in the family on a letter that isn't your lead */
-  DIMS.forEach(d=>{
-    const rk = me["rank"+d];
-    if (rk.pos === 2 && me.N[d] >= 40 && d !== me.order[0] && F.ranks[d] && F.ranks[d][0]){
-      const leader = F.ranks[d][0];
-      if (leader.id !== p.id){
-        out.push("Quietly, your " + d + " of " + me.N[d] + " is the " + (rk.tied ? "tied-" : "") + "second-highest in this family — behind only " + leader.name + ". It doesn't announce itself, but the numbers see it.");
-      }
-    }
+  const continua = CONTINUA_META.map(m=>{
+    const posA = A.pos[m.id];
+    const posB = B.pos[m.id];
+    const gap = Math.abs(posA - posB);
+    return {id:m.id, left:m.left, right:m.right, group:m.group, always:m.always, posA, posB, gap};
   });
 
-  /* everyone's furthest */
-  if (me.furthestOfCount === n1 && n1 >= 3){
-    out.push("Ask the numbers who each person in this family is least like, and every answer comes back the same: you. All " + n1 + " of them, independently.");
+  const always = continua.filter(c=>c.always);
+  const extras = continua.filter(c=>!c.always).sort((x,y)=>y.gap - x.gap);
+  const top = always.concat(extras.filter(c=>c.gap >= TINY_CONT).slice(0, 2));
+  if(top.length < 4){
+    extras.forEach(c=>{
+      if(top.length >= 4) return;
+      if(!top.some(t=>t.id === c.id)) top.push(c);
+    });
   }
 
-  /* center of gravity / far outlier */
-  if (me.avgDistRank === 1 && F.familySize >= 4){
-    out.push("You sit closer to the family's average profile than anyone else here. Whatever this family's shared temperament is, you're its center of gravity.");
+  const similarPoles = continua.filter(c=>c.gap < SIMILAR_CONT);
+  const rubPoles = continua.filter(c=>c.gap >= 22).sort((x,y)=>y.gap - x.gap);
+
+  const diffs = ["D","I","S","C"].map(d=>({d, a:A.N[d], b:B.N[d], diff:A.N[d]-B.N[d], abs:Math.abs(A.N[d]-B.N[d])}))
+    .sort((x,y)=>y.abs - x.abs);
+
+  return {
+    A, B, paceGap, priGap, largerGap,
+    samePace, samePriority, sameSide, bothEven,
+    differentPace, differentPri, pairingType, classic,
+    dVsS, iOverlap, diVsSi, sameLetter,
+    continua, topContinua: top, similarPoles, rubPoles, diffs,
+    nearCenterA: A.center, nearCenterB: B.center
+  };
+}
+
+function poleSide(pos){
+  if(pos < 42) return "left";
+  if(pos > 58) return "right";
+  return "mid";
+}
+
+function fill(s, map){
+  return s.replace(/\{(\w+)\}/g, (_, k)=> map[k] != null ? map[k] : "");
+}
+
+function uniq(arr){
+  const out = [];
+  (arr || []).forEach(function(x){
+    if(x && out.indexOf(x) < 0) out.push(x);
+  });
+  return out;
+}
+function hasVis(S, L){
+  return (S.vis || []).indexOf(L) >= 0;
+}
+function isSplusI(S){ return hasVis(S, "S") && hasVis(S, "I"); }
+function isSplusC(S){ return hasVis(S, "S") && hasVis(S, "C"); }
+function isDplusI(S){ return hasVis(S, "D") && hasVis(S, "I"); }
+function isDplusC(S){ return hasVis(S, "D") && hasVis(S, "C"); }
+function whoHigher(an, L){
+  const d = an.diffs.find(function(x){ return x.d === L; });
+  if(!d || d.abs < 5) return null;
+  const more = d.diff > 0 ? an.A : an.B;
+  const less = more === an.A ? an.B : an.A;
+  return {L:L, more:more, less:less, moreN: d.diff > 0 ? d.a : d.b, lessN: d.diff > 0 ? d.b : d.a, abs:d.abs};
+}
+function leftoverLines(an, minAbs){
+  if(minAbs == null) minAbs = 5;
+  return an.diffs.filter(function(d){ return d.abs >= minAbs; }).map(function(d){
+    const more = d.diff > 0 ? an.A : an.B;
+    const moreN = d.diff > 0 ? d.a : d.b;
+    const lessN = d.diff > 0 ? d.b : d.a;
+    return more.name + " runs higher " + d.d + " (" + moreN + " vs " + lessN + "), which is " + clusterPhrase(d.d);
+  });
+}
+function sharedModLetters(an){
+  return ["D","I","S","C"].filter(function(L){ return an.A.N[L] >= 36 && an.B.N[L] >= 36; });
+}
+function blendPairKind(A, B){
+  if((isSplusI(A) && isSplusC(B)) || (isSplusC(A) && isSplusI(B))) return "SI/SC";
+  if((isDplusI(A) && isSplusI(B)) || (isDplusI(B) && isSplusI(A))) return "DI/SI";
+  if((isDplusI(A) && isSplusC(B)) || (isDplusI(B) && isSplusC(A))) return "DI/SC";
+  if((isDplusI(A) && isDplusC(B)) || (isDplusI(B) && isDplusC(A))) return "DI/DC";
+  if((isDplusC(A) && isSplusC(B)) || (isDplusC(B) && isSplusC(A))) return "DC/SC";
+  return "";
+}
+function siSnap(an){ return isSplusI(an.A) ? an.A : (isSplusI(an.B) ? an.B : null); }
+function scSnap(an){ return isSplusC(an.A) ? an.A : (isSplusC(an.B) ? an.B : null); }
+function diSnap(an){ return isDplusI(an.A) ? an.A : (isDplusI(an.B) ? an.B : null); }
+function dcSnap(an){ return isDplusC(an.A) ? an.A : (isDplusC(an.B) ? an.B : null); }
+
+function pnoun(S){
+  const n = S.name;
+  if(n === "Alex" || n === "Derek" || n === "Mike" || n === "Colin") return {s:"he", o:"him", p:"his"};
+  if(n === "Ashley" || n === "Renee" || n === "Elliana" || n === "Sofia" || n === "Kate") return {s:"she", o:"her", p:"her"};
+  return {s:n, o:n, p:n + "'s"};
+}
+function sliderLine(S){
+  const n = S.name;
+  const p = pnoun(S);
+  if(S.center && S.shape === "balanced") return n + " sits near the middle on both sliders.";
+  if(S.center) return n + " sits near the middle of both sliders.";
+  const pace = S.paceW.phrase === "very fast" ? "fast" : S.paceW.phrase;
+  if(S.priW.pole === "people") return n + " is " + pace + ", and " + p.s + " cares who is in the room.";
+  if(S.priW.pole === "task") return n + " is " + pace + ", and leans toward the work.";
+  return n + " is " + pace + ". " + p.s.charAt(0).toUpperCase() + p.s.slice(1) + " sits near even on people versus the work.";
+}
+
+const PERSON_CAVEAT = "A reading of the scores, not a script for Tuesday.";
+const PAIR_CAVEAT = "A reading of the scores, not a script for Tuesday.";
+
+function leftoverSentence(an){
+  const A = an.A, B = an.B;
+  const lines = leftoverLines(an, 8).slice(0, 3);
+  if(!lines.length){
+    return A.name + " and " + B.name + " sit close on all four scores. The leftover is small.";
   }
-  if (me.avgDistRank === F.familySize && F.familySize >= 4){
-    const secondId = F.byAvgDistIds[F.familySize - 2];
-    const second = F.persons[secondId];
-    if (me.avgDist >= second.avgDist * 1.7){
-      out.push("You sit " + me.avgDist + " points from the family's average profile. The next-most-distinct person here is " + second.name + ", at " + second.avgDist + ". You are not a variation on this family's theme; you're the counterpoint.");
+  return "On the four scores, " + lines.join(". ") + ".";
+}
+
+function stackPara(S){
+  const n = S.name;
+  const p = pnoun(S);
+  const vis = S.vis || [];
+  if(S.center){
+    if(vis.length >= 2){
+      return n + " sits near the middle. " + vis[0] + " and " + vis[1] + " are both in the mix, without a hard default.";
     }
+    return n + " sits near the middle of both sliders. Some nights " + n + " steers. Some nights " + n + " matches.";
   }
-
-  /* twice-asked questions, for flat profiles */
-  if (me.shape === "balanced" && me.care && me.care.pairs <= 1){
-    out.push("The test asks four of its questions twice, in disguise. You answered the pairs differently almost every time — which sounds careless until you look at the shape of you: your answers genuinely depend on the situation. The flat profile isn't noise. It's the point.");
+  if(vis.length < 2) return "";
+  const a = vis[0], b = vis[1];
+  if((a === "I" && b === "D") || (a === "D" && b === "I")){
+    return n + "'s I wants people in. " + p.p.charAt(0).toUpperCase() + p.p.slice(1) + " D wants a call. Together that often looks like going first: " + p.s + " names a time and a place so there is something to join. In a group " + p.s + " can be shorter than the I score suggests. Once a path is visible, " + p.s + " closes.";
   }
+  if((a === "S" && b === "I") || (a === "I" && b === "S")){
+    return n + "'s S wants buy-in. The I is a quicker yes once people feel in. Patience first, then " + n + " is often ready.";
+  }
+  if((a === "S" && b === "C") || (a === "C" && b === "S")){
+    if(a === "C"){
+      return n + "'s C wants a check. The S wants buy-in. Together that often looks like getting it right with a runway. C can stretch the close.";
+    }
+    return n + "'s S wants buy-in. The C wants a check. Together that often looks like patience plus one more look before a yes. C can stretch the close.";
+  }
+  if((a === "D" && b === "C") || (a === "C" && b === "D")){
+    return n + "'s D wants a call. The C wants it right. Fast enough to name a path, careful enough to check it.";
+  }
+  if((a === "D" && b === "S") || (a === "S" && b === "D")){
+    return n + " carries a close and a runway in the same person. A path gets named, then " + n + " waits for the room.";
+  }
+  if((a === "I" && b === "C") || (a === "C" && b === "I")){
+    return n + "'s I wants people in. The C wants a check. A warmer yes, after it sits right.";
+  }
+  return n + " shows " + a + " with " + b + ".";
+}
 
+function capHe(S){
+  const p = pnoun(S);
+  return p.s.charAt(0).toUpperCase() + p.s.slice(1);
+}
+function personFlavor(S){
+  if(S.center || !(S.vis||[]).length) return "center";
+  if(isDplusI(S)) return "DI";
+  if(isSplusI(S)) return "SI";
+  if(isSplusC(S) && S.priW.pole === "people") return "SC-people";
+  if(isSplusC(S) && (S.vis[0] === "C")){
+    return S.priW.phrase.indexOf("slight") >= 0 ? "CS-slight" : "CS";
+  }
+  if(isSplusC(S) && S.paceW.phrase.indexOf("very") >= 0) return "SC-very";
+  if(isSplusC(S)) return "SC";
+  if(isDplusC(S)) return "DC";
+  if(S.paceW.pole === "fast" && S.priW.pole === "people") return "fast-people";
+  if(S.paceW.pole === "fast" && S.priW.pole === "task") return "fast-task";
+  if(S.paceW.pole === "slow" && S.priW.pole === "task") return "slow-task";
+  if(S.paceW.pole === "slow" && S.priW.pole === "people") return "slow-people";
+  return "mix";
+}
+
+function workingParas(S){
+  const n = S.name;
+  const p = pnoun(S);
+  const N = S.N;
+  const f = personFlavor(S);
+  if(f === "DI" || f === "fast-people"){
+    return [
+      n + "'s gift is that a night actually happens. Someone names a time and a place, people have something to join, the room warms up. When " + p.s + " is aligned with you, the first yes is often care: " + p.s + " is trying to get you in, not trying to win. Motion is how " + p.s + " shows welcome.",
+      "Low C (" + N.C + ") and low S (" + N.S + ") mean " + p.s + " will not naturally add a long check or a long runway. That is why the house needs other people for those jobs, and why " + p.p + " job is motion. Use " + p.o + " to start things. Do not ask " + p.o + " to sit with a maybe until the day dies.",
+      "Range lives in the blend. The I still wants connection after the D has named a path. In a 1:1 that can look warmer than the group version of " + p.o + ". The close already happened. Getting people in is not finished."
+    ];
+  }
+  if(f === "SI"){
+    return [
+      n + "'s gift is holding the room until a yes is real. People feel in. The night does not have to be a vote. Once " + p.s + " is in, that yes is a yes, not a polite maybe. The I is warmth and a quicker close after buy-in, not a talking score, and the S is not a quiet cartoon. " + capHe(S) + " can hold a gathering without making it a show.",
+      p.s.charAt(0).toUpperCase() + p.s.slice(1) + " will not naturally grab the wheel. D sits at " + N.D + ", so the path often waits until the room is ok. That is why the house needs someone else to start, and why " + p.p + " job is the hold. Use " + p.o + " to keep people in. Do not keep polling " + p.o + " after " + p.s + " is already in."
+    ];
+  }
+  if(f === "SC-people"){
+    return [
+      n + "'s gift is not closing until people have had a say. S is buy-in. C is a check. I sits at " + N.I + ", a people-lean, so the wait is often for voices, not only for whether the reservation holds. That is a different job from a C-forward check of hours and drive. Consensus delay is a tendency here, not a one-off anecdote.",
+      "When it is working, a plan gets time to be heard. Someone who would have been walked past gets a turn. The night can start later and still feel like everyone is in. Use " + p.o + " when the house is about to lock something that still has people who have not spoken. Do not use a third round as the only method once those people have spoken."
+    ];
+  }
+  if(f === "SC-very"){
+    return [
+      n + "'s gift is buy-in plus a check. A yes from " + n + " often means people had a chance to be ok and the plan was looked at: hours, drive, whether it holds. The extra look is care, not a stall by default. Very patient wiring means a rushed close can feel like being walked past.",
+      "Use " + p.o + " when the night has to be right. Send the details. Give a runway. Then stop. One more look is the gift. A third round can stall. Do not turn " + p.o + " into a polling cartoon. " + capHe(S) + " is not collecting votes for sport. " + capHe(S) + " is trying not to ship something that falls apart."
+    ];
+  }
+  if(f === "SC"){
+    return [
+      n + "'s gift is buy-in plus a check. A yes from " + p.o + " often means people had a chance to be ok and the plan was looked at: hours, drive, whether it holds. The extra look is care, not a stall by default. Patient wiring means a rushed close can feel like being walked past.",
+      "Use " + p.o + " when a night needs both kindness and a second pass. Send the details. Give a runway. Then stop. One more look is the gift. A third round can stall. " + capHe(S) + " will not naturally grab a live path and run. Name a time when good enough ships so the check does not become the whole week."
+    ];
+  }
+  if(f === "CS"){
+    return [
+      n + "'s gift is that the plan actually works. Hours, drive, the reservation, whether it seats. C leads, S still wants buy-in, so a yes is often both correct and livable. Speed without that check can read as sloppy to " + p.o + ", because " + p.s + " has already seen the part that fails.",
+      "Use " + p.o + " when the outing has to hold. Send the details before you ask for a close. " + capHe(S) + " will not naturally name a fast first yes. That is not a freeze-out. It is the check doing its job. Name a time when good enough ships so the look has an end."
+    ];
+  }
+  if(f === "CS-slight"){
+    return [
+      n + "'s gift is a C-forward check with enough S to wait for buy-in. People versus the work leans slightly toward the work, so the first pass is often whether this holds, then whether people can live with it. When it is working, the plan is solid and nobody got surprised by a hole " + p.s + " would have caught.",
+      "Use " + p.o + " on the look: hours, cost, whether the thing as written actually works. Give a runway. Do not demand a yes before the check. The tax is a delayed close if nobody names when good enough ships."
+    ];
+  }
+  if(f === "DC"){
+    return [
+      n + "'s gift is a call plus a check. Fast enough to name a path, careful enough to look at it. When it is working, the night has a time and the time is not a fantasy.",
+      "Use " + p.o + " when something has to be both decided and right. Do not skip the look, and do not let the look eat the whole day."
+    ];
+  }
+  if(f === "center"){
+    return [
+      n + "'s gift is matching. Some nights " + p.s + " steers. Some nights " + p.s + " holds, checks, or follows. That range is real. It is not a missing type, and it is not a secret opposite hiding in the leftover points.",
+      "When it is working, " + n + " can meet the night that is actually in front of " + p.o + ": a close if the house needs motion, a runway if people are not in, a check if the plan is thin. The tax is that the rest of the house has to ask which night this is, instead of guessing from last Saturday."
+    ];
+  }
+  if(S.paceW.pole === "fast"){
+    return [
+      n + "'s gift is motion. A path gets named so there is something to join. When it is working, a night actually starts.",
+      "Use " + p.o + " to start. Do not make " + p.o + " sit on a live path until it goes cold."
+    ];
+  }
+  return [
+    n + "'s gift is a slower yes that other people can live with. When it is working, people feel held and the plan does not steamroll anyone.",
+    "Use " + p.o + " for runway. Give a clear ask so the patience has somewhere to land."
+  ];
+}
+
+function sceneParas(S){
+  const n = S.name;
+  const p = pnoun(S);
+  const f = personFlavor(S);
+  if(f === "DI" || f === "fast-people"){
+    return [
+      "On a group text, " + n + " is often the first time on the thread. The invitation is the path. A thread that sits without a when can feel like the night already dying, even if everyone is still theoretically in.",
+      "Saturday morning, the day is already sketched. Waiting for a full vote can feel like the day dying. " + capHe(S) + " would rather send a time and adjust than keep the morning open until nobody has energy left.",
+      "For a holiday " + p.s + " will often just name a day so the thing exists. That is a start, not an itinerary. Do not ask " + p.o + " what the plan is. Hours, drive, seating, and the checklist are not " + p.p + " job.",
+      "On a drive or a trip, " + n + " is often already going. A last-minute change is not a crisis. Asking " + p.o + " to lock the route is asking for a C " + p.s + " does not have.",
+      "In a 1:1, after a close, " + p.s + " can be more present than the group version of " + p.o + ". The I still wants connection. The D already finished the agenda. That is a good time to say the slower yes you did not say in the thread.",
+      "When hosting, people showing up is the welcome, not a printed plan. A floating maybe still kills the night because " + p.s + " already started, not because " + p.s + " needed the seating chart. If you are coming, say so. Do not make " + p.o + " produce the itinerary."
+    ];
+  }
+  if(f === "SI"){
+    return [
+      "At a family gathering, " + n + " often keeps the table together: who has not eaten, who went quiet, whether this still feels like a welcome. That is the gift. It is not a quiet-because-S cartoon, and the I is not a talking score.",
+      "Extra rounds after " + p.s + " is in chafe. Once people feel in, " + p.s + " is often ready. Another poll is not care. It is stalling a close " + p.s + " already made.",
+      "If you need a small no, ask the same day, preferably not in a pile-on. " + capHe(S) + " can give one. " + capHe(S) + " may not volunteer it while the whole thread is watching.",
+      "Saturday morning can wait until people are ok. A locked 9am march is expensive for " + p.o + " in a way a sketched afternoon is not. Buy-in is the start of the day, not a delay tacked on after the plan.",
+      "For a holiday " + p.s + " wants the humans in before the plan hardens. A published time helps if someone else owns the start. " + n + " owns whether people actually feel invited.",
+      "In a 1:1 versus a pile-on, the real yes is easier without an audience. A group thread can get a warm maybe. A walk can get the true sentence."
+    ];
+  }
+  if(f === "SC-people"){
+    return [
+      "On a group text, " + n + " often waits until people have had a say before the plan feels real. That is not the same as checking whether the reservation holds. It is consensus. The delay is a tendency, not a one-night mood.",
+      "At a family gathering " + p.s + " is often tracking who has not spoken yet. Closing before those voices land can feel like skipping the point of the day.",
+      "For a holiday, " + p.s + " would rather be late to a published time than lock a time that quietly leaves someone out. Ask who is not ok on purpose. " + capHe(S) + " often already knows.",
+      "Saturday morning may stay open until the house has actually voted with words, not shrugs. If you needed a locked morning, say so early, and still leave a beat for the people in the room.",
+      "In a 1:1, " + p.s + " can give a clearer yes than in a pile-on. The C still wants a look. The S still wants buy-in. The people-lean means the look is often 'have we heard from them,' not only 'does this seat.'",
+      "A stuck no may wait until everyone has been asked. Name a time when asking stops. Once people have had a say, a third round is stalling, not care."
+    ];
+  }
+  if(f === "SC-very"){
+    return [
+      "Saturday morning, " + n + " often wants the shape of the day before it starts. A snap decision at the door is expensive. Runway is the point of the morning, not a luxury.",
+      "For a holiday the details matter: who is coming, where it seats, whether the plan holds. Send them. A vibe-based yes is not how " + p.s + " shows care.",
+      "On a trip, hours and routing are the check. Leaving 'whenever' leaves " + p.o + " nothing to look at. A written departure time is welcome. A last-minute rewrite after " + p.s + " already checked the old one is costly.",
+      "When hosting, the plan should work. A loose maybe until 4pm leaves " + p.o + " nothing to check. If you are coming, say so with enough time for the look. If you are not, a same-day no is kinder than a floating slot.",
+      "When someone is late, or when the house is waiting, " + n + " often prefers a runway over a scramble. Being rushed to pick is a common tax. Give time, not a spotlight.",
+      "A stuck no often needs one more look, not a pile-on. Ask what still does not sit right, then stop. Do not turn " + p.o + " into a polling cartoon. One check is care. A third round can stall."
+    ];
+  }
+  if(f === "SC"){
+    return [
+      "Saturday morning, " + n + " often wants the shape of the day before it starts. A snap decision at the door is expensive. " + capHe(S) + " would rather know the day than invent it on the way out.",
+      "For a holiday, buy-in plus a check: who is coming, and whether the plan holds. Send the details. Extra rounds after both jobs are done will stall, but skipping the look is the other miss.",
+      "On a trip, hours and drive get a look. Send them before you ask for a yes. A vibe-based departure leaves " + p.o + " nothing to check.",
+      "When hosting, a plan that can actually run is the welcome. A floating maybe until 4pm is hard to check and hard to treat as care.",
+      "A stuck no may be the check still running. Ask what is missing, then name when good enough ships. One look is care. A third round can stall.",
+      "In a 1:1, " + p.s + " can name the leftover worry without an audience. A pile-on makes the look feel like a defense. Ask once, wait, then stop."
+    ];
+  }
+  if(f === "CS" || f === "CS-slight"){
+    const slight = f === "CS-slight";
+    return [
+      "Saturday morning often starts with whether the plan holds. Hours, drive, cost, whether it seats. " + n + " would rather get that right than start moving and fix it in the car.",
+      "For a holiday, the gift is an outing that actually works. A published time is useful after the look, not instead of it. " + (slight ? capHe(S) + " leans slightly toward the work, so the first question is often the plan, then the people." : capHe(S) + " is watching the reservation more than the vibe."),
+      "On a trip, routing and timing are the check. A last-minute redo after " + p.s + " already did the look is expensive. If something has to change, change it with the details, not with a shrug.",
+      "When hosting, the plan is the welcome only if it holds. Seating, food, timing. A loose maybe until 4pm gives " + p.o + " nothing to make correct.",
+      "A stuck no is often a hole in the plan, not a mood. Ask what still does not check out. Then stop. The look has to end or the week never ships.",
+      (slight
+        ? "People versus the work is only a slight lean. " + n + " can still hear a who-is-ok question. Ask it on purpose, because the default pass is the work."
+        : "In a 1:1, " + p.s + " can walk you through why it does not hold. That is care. It is not a cold shoulder, and it is not silence. It is the check, said in words.")
+    ];
+  }
+  if(f === "center"){
+    return [
+      "Saturday morning might be a locked plan or a late start. Ask which one this Saturday is. Last week is not evidence.",
+      "For a holiday " + n + " can match the house: start if the house is drifting, hold if people are not in, check if the plan is thin. The gift is that flexibility. The tax is guessing it in advance.",
+      "On a group text, " + p.s + " may send a time one week and wait the next. Do not build a cartoon from one thread.",
+      "In a 1:1 versus a pile-on, ask which this conversation needs. Range means the first shrug might not be the answer.",
+      "When hosting, " + n + " can run a tight night or a loose one. Tell " + p.o + " which you are walking into, so " + p.s + " is not guessing with you.",
+      "A stuck no may need a direct question. Center wiring does not announce itself. Ask what " + p.s + " actually thinks, then wait."
+    ];
+  }
+  if(S.paceW.pole === "fast"){
+    return [
+      "On a group text, " + n + " may name a time so the thread has a path.",
+      "Saturday, waiting for a full vote can feel like the day dying.",
+      "For a holiday " + p.s + " often wants a call so people can book.",
+      "On a trip, routing is already happening. A last-minute redo is costly.",
+      "When hosting, the plan is the welcome.",
+      "In a 1:1, after a close, ask whether people are actually in."
+    ];
+  }
+  return [
+    "Saturday often wants a runway. Being rushed to pick is a common tax.",
+    "For a holiday, " + n + " often wants people ok, or the plan holding, before a yes feels real.",
+    "On a trip, last-minute rewrites cost more than they do for a fast starter.",
+    "When hosting, a floating maybe is hard to live with.",
+    "A stuck no may need a same-day ask, not a pile-on.",
+    "In a 1:1, the true sentence is easier than in a thread."
+  ];
+}
+
+function tablePlanPressure(S){
+  const n = S.name;
+  const pr = pnoun(S);
+  const He = capHe(S);
+  let table, plan, pressure;
+  if(S.center){
+    table = "At a table, " + n + " does not run one default. Some nights that looks like listening. Some nights that looks like steering. Watch the night, not last month. Range is the point of the scores sitting near the middle. If you needed a particular job from " + pr.o + " tonight, ask for it. " + He + " can often do more than one.";
+    plan = "On a plan, " + n + " can lock a time or wait to hear who is coming. That is matching, not indecision for its own sake. Ask which one this plan needs: a close, buy-in, people in, or a check. Then let " + pr.o + " do that job instead of guessing from the last outing.";
+    pressure = "Under pressure, " + n + " shifts. There is no single tell. Some squeezes pull a close. Some pull a hold. Ask what " + pr.s + " needs, then wait. Inventing a type from the worst night is how you miss the gift of range.";
+  }else if(S.paceW.pole === "fast" && S.priW.pole === "people"){
+    table = "At a table, " + n + " has often already picked. " + He + " invites by going first: a path so there is something to join, then a close once it is visible. That can feel like a decision to anyone still chewing. It is not always a verdict on them. It is often the night being started. If you needed a slower chew, say so before the path has already cooled.";
+    plan = "On a plan " + pr.s + " has often already moved: a time, a place, a first yes. " + He + " still wants the room in. Anyone who needed a slower yes can feel skipped even when they were invited. The skip is the tax of speed, not proof " + pr.s + " did not care. Treat the first plan as a starting point. Name the slower yes while it is still useful.";
+    pressure = "Under pressure " + pr.s + " gets faster and more certain. Empathy can thin. Someone who has not answered yet can look settled when they are only stunned. Speed and a close are " + pr.p + " tools when the room feels messy. The stunned person is not done. Ask once, wait past the first pause, and do not fill it with a second plan.";
+  }else if(S.paceW.pole === "fast" && S.priW.pole === "task"){
+    table = "At a table, " + n + " often wants the point. A call may get named before dessert. That is a close, not a speech. People who were still lining up their thought can feel walked past. Ask for one more round if you need it, before " + pr.s + " treats the pause as settled.";
+    plan = "On a plan, " + n + " often picks. Waiting for every vote can feel like the plan dying. A time gets sent so there is something to work from. If the time is wrong, " + pr.s + " would rather fix it than sit in an open maybe. Say the correction the same day.";
+    pressure = "Under pressure " + n + " gets faster and more certain. Empathy can thin. Someone who has not answered yet can look settled when they are only stunned. Wait past the first pause. Do not fill it with a second plan.";
+  }else if(S.paceW.pole === "slow" && S.priW.pole === "task"){
+    table = "At a table, " + n + " is often checking whether this actually works: hours, drive, the reservation, whether it seats. A yes often waits until it checks out. That is not a cold table. It is the check, done in the room instead of after the outing breaks. If you wanted a fast vibe-yes, say so, and still send the details " + pr.s + " needs.";
+    plan = "On a plan, " + n + " often wants it to be right. Hours, drive, cost, whether it seats. Speed without that check can read as sloppy, because " + pr.s + " can already see the part that fails. Send the details before you ask for a close. Name a time when good enough ships so the look has an end.";
+    pressure = "Under pressure, " + n + " often goes tighter. Mistakes can feel more expensive than delay. The room may read that as withdrawal. It is often the check. Ask what still does not sit right, then stop. A spotlight makes the look feel like a defense.";
+  }else if(personFlavor(S) === "SC-people"){
+    table = "At a table, " + n + " is often waiting until people have had a say. That is not the same as checking the reservation. Consensus is the job. A fast close before voices land can feel like the point of the meal got skipped. Ask who has not spoken yet. " + He + " often already knows.";
+    plan = "On a plan, " + n + " often will not treat it as real until people have been asked. That delay is a tendency, not a one-off. If you needed a locked morning, say so early, and still leave a beat for voices. Once those people have spoken, stop the extra rounds.";
+    pressure = "Under pressure, " + n + " often tends the people and delays the close. Feelings get smoothed. The actual lock can wait one beat too many. A same-day 1:1 gets a clearer yes than a pile-on. Name when asking stops.";
+  }else if(S.paceW.pole === "slow" && S.priW.pole === "people"){
+    table = "At a table, " + n + " is often tracking who is ok. Buy-in often matters more than a tight agenda. That is not the same as filling the air. " + He + " can hold a room without making it a show. If someone is out, the meal is not done for " + pr.o + " yet. Ask who is not ok. " + He + " often already knows.";
+    if(isSplusI(S)){
+      plan = "On a plan, " + n + " often waits until people feel in, then a quicker yes. Extra rounds after that can chafe. The I is the second beat, not a separate show. If the room is in, " + pr.s + " is often ready to live with the plan. If the room is not, a locked time will feel like being walked past. Ask once after people are in, then stop polling.";
+    }else{
+      plan = "On a plan, " + n + " often waits to ask. The plan may not feel real until people are ok. That can look like delay to anyone who already named a time. It is often buy-in doing its job. If you needed a locked morning, say so early, and still leave a beat for the people in the room.";
+    }
+    pressure = "Under pressure, " + n + " often tends the people. Feelings get smoothed. The actual problem can wait one beat too many. That is care, and it is also the tax: the hard call can retire unspoken. A same-day ask helps. " + He + " can take a direct question better than a pile-on.";
+  }else if(S.paceW.pole === "slow"){
+    table = "At a table, " + n + " often prefers a runway. The meal can be the point. Being rushed to pick is a common tax. " + He + " is not failing to have an opinion. " + He + " is often still on buy-in, or still on the check. Give time, then ask a real question, then wait.";
+    if(isSplusC(S)){
+      plan = "On a plan, " + n + " often wants buy-in and a check. Hours, drive, who is coming, whether this holds. A yes from " + pr.o + " often means both jobs got done. Extra rounds after that can stall. One more look is care. A third round may be the week refusing to ship.";
+    }else{
+      plan = "On a plan, " + n + " often wants a slower yes. Give a little runway and a clear ask. An open maybe until 4pm is not runway. It is a missing question. Name what you need, then wait.";
+    }
+    pressure = "Under pressure, " + n + " often slows down rather than speeding up. Give time, not a spotlight. A pile-on makes the slower yes even slower. A 1:1 the same day is one way to get the real sentence.";
+  }else if(S.paceW.pole === "fast"){
+    table = "At a table, " + n + " often brings motion. Once a path is visible, " + n + " may name it. That can feel like a close to anyone still chewing. Say if you still need a beat, before the path cools.";
+    plan = "On a plan, " + n + " often picks. A time gets sent so there is something to join. Treat it as a starting point if you still need a slower yes, and say so the same day.";
+    pressure = "Under pressure " + n + " gets faster and more certain. Empathy can thin. Wait past the first pause. The stunned person is not necessarily done.";
+  }else{
+    table = "At a table, " + n + " flexes. Watch what the night is asking for. Some meals want a close. Some want a hold. Ask which one this is.";
+    plan = "On a plan, " + n + " sits between locking it and waiting. Give a little runway and a clear ask. Do not guess the mode from last week.";
+    pressure = "Under pressure, " + n + " may slow down rather than speed up. Give time, not a spotlight. Ask what would help, then wait.";
+  }
+  return {table:table, plan:plan, pressure:pressure};
+}
+
+function hardParas(S){
+  const n = S.name;
+  const p = pnoun(S);
+  const f = personFlavor(S);
+  if(f === "DI" || f === "fast-people"){
+    return [
+      "The slower yes can feel skipped even when they were invited. A pause can look settled. That is the tax of a close that arrives before the room has finished chewing.",
+      "Under a real squeeze, speed and certainty go up and empathy can thin. The stunned person looks done. They are often not."
+    ];
+  }
+  if(f === "SI"){
+    return [
+      "The tax is a delayed hard call, and extra rounds after " + p.s + " is already in. People can read the hold as indecision, or keep polling " + p.o + " after the yes. Neither is the gift.",
+      n + " may absorb a night that did not sit right and say it later. Ask the same day. Do not make " + p.o + " perform the no in front of the whole thread."
+    ];
+  }
+  if(f === "SC-people"){
+    return [
+      "The tax is a consensus delay. The plan can sit while voices are gathered, and a starter in the house will feel the day dying. That wait is often for people, not for a perfect reservation.",
+      "Once people have had a say, another round is stalling. Name when asking stops. Someone who was invited and did not speak is not the same as someone who was never asked."
+    ];
+  }
+  if(f === "SC-very"){
+    return [
+      "The tax is a stretched close. One more look is care. A third round can stall the week. People who already feel in will hear the extra pass as distrust, even when it is the check.",
+      "A rushed yes is the other tax. Very patient wiring, walked past, can go tight and quiet. That is not a freeze-out by default. It is often the look being skipped."
+    ];
+  }
+  if(f === "CS" || f === "CS-slight"){
+    return [
+      "The tax is a delayed close while the look runs, and a night that feels cold to anyone who wanted a vibe-yes. The check is care. It can still leave people waiting at the door.",
+      "If nobody names when good enough ships, the plan never leaves the tab. Ask what still does not hold, then pick a time. Skipping the look is the other miss: " + n + " can already see the part that fails."
+    ];
+  }
+  if(f === "SC"){
+    return [
+      "The tax is patience that never lands. Buy-in plus a check needs an end, or the week stalls for two reasons at once.",
+      "A rushed close skips both jobs. Give a runway and a look, then stop."
+    ];
+  }
+  if(f === "center"){
+    return [
+      "The tax is guessing which night this is. The house can treat " + n + " as whichever cartoon was convenient last time, then feel betrayed when " + p.s + " matches a different job.",
+      "Ask. Range only works if someone names the mode. A single dinner is not a type."
+    ];
+  }
+  if(S.paceW.pole === "fast"){
+    return [
+      "The slower yes can feel skipped. A pause can look settled. Say if you still need a beat, the same day."
+    ];
+  }
+  return [
+    "The tax is a delayed hard call, or a check that outruns the week. Name when good enough ships, and ask for the real no the same day."
+  ];
+}
+
+function letterParasFor(S){
+  const n = S.name;
+  const N = S.N;
+  const vis = S.vis || [];
+  const p = pnoun(S);
+  const out = [];
+  if(S.center && vis.length === 0){
+    return out;
+  }
+  vis.forEach(function(L){
+    const band = letterBandOf(N[L]);
+    if(L === "I"){
+      let t = "I " + band + " (" + N.I + "): " + n + " wants people in. That is invitation, warmth, a quicker yes when the room feels good. It is not a talking score.";
+      if(isDplusI(S)){
+        t += " D can shorten that in a group: once a path is visible, " + p.s + " closes, so the group version can be shorter than the I suggests.";
+      }else if(isSplusI(S)){
+        t += " Next to high S, the I is the second beat: buy-in first, then a real yes once people feel in.";
+      }
+      out.push(t);
+    }else if(L === "D"){
+      let t = "D " + band + " (" + N.D + "): " + n + " names a path and shortens toward a close. That is a call, not a volume setting.";
+      if(isDplusC(S)){
+        t += " Next to C, the close still wants a look. Fast enough to name it, careful enough to check it.";
+      }
+      out.push(t);
+    }else if(L === "S"){
+      let t = "S " + band + " (" + N.S + "): buy-in and runway. " + n + " treats a plan as real once people can live with it, not only once a time is named.";
+      if(isSplusI(S)){
+        t += " The I then speeds the yes after people feel in. Extra rounds after that chafe.";
+      }else if(isSplusC(S)){
+        t += " The C adds a check, so the runway is for both the room and the plan. C can stretch the close.";
+      }
+      out.push(t);
+    }else if(L === "C"){
+      let t;
+      if(isSplusC(S) && S.priW.pole === "people"){
+        t = "C " + band + " (" + N.C + "): the check. For " + n + ", that look is often whether people have had a say, not only hours and drive. A pause here is often waiting for voices, not a freeze-out. Next to S, the extra pass is care. A third round can stall.";
+      }else{
+        t = "C " + band + " (" + N.C + "): the check. Hours, drive, whether this holds. A pause here is often the look, not a freeze-out.";
+        if(isSplusC(S) && vis[0] === "C"){
+          t += " C leads this stack, so the first pass is often whether the plan works, with S still wanting buy-in before a yes.";
+        }else if(isSplusC(S)){
+          t += " Next to high S, the extra look is care. A third round can stall.";
+        }
+      }
+      out.push(t);
+    }
+  });
+  if(isDplusI(S)){
+    if(N.S < 36) out.push("S Low (" + N.S + "): little natural runway. " + n + " will not sit with a maybe for long. The house needs other people for that job.");
+    if(N.C < 36) out.push("C Low (" + N.C + "): little natural check. Hours, drive, and whether it seats are not " + p.p + " first move.");
+  }else if(isSplusI(S) && N.D < 36){
+    out.push("D Low (" + N.D + "): " + n + " will not naturally name the close first. Someone else often has to start the path.");
+  }else if(isSplusC(S) && vis[0] === "S" && N.I < 36 && N.I <= 20){
+    out.push("I Low (" + N.I + "): not a quicker-yes-from-warmth person. The second letter here is the check, not invitation.");
+  }
   return out;
 }
 
-function personFamily(p){
-  const F = (typeof FACTS !== "undefined") ? FACTS : null;
-  if (!F) return {ranksRow:[], facts:[]};
-  const me = F.persons[p.id];
-  if (!me) return {ranksRow:[], facts:[]};
-  const ranksRow = ["D","I","S","C"].map(d=>({
-    d, n: me.N[d],
-    pos: me["rank"+d].pos, of: me["rank"+d].of, tied: me["rank"+d].tied
-  }));
-  const facts = [];
-  if (me.nearest && me.furthest){
-    facts.push("Closest profile to yours: " + me.nearest.name + ", " + me.nearest.l1 + " points away across the four scores. Farthest: " + me.furthest.name + ", at " + me.furthest.l1 + ". The average distance between two people in this family is " + F.avgL1 + ".");
+function personPointers(S){
+  const n = S.name;
+  const vis = S.vis || [];
+  const p = pnoun(S);
+  if(S.center || vis.length === 0){
+    return [
+      "Do not pick one cartoon from one night. Some nights " + n + " steers. Some nights " + n + " matches.",
+      "Ask which this plan needs: a close, buy-in, people in, or a check.",
+      "Use the range. " + n + " can meet more than one job if you name it.",
+      "Guessing from a single dinner is the tax. Ask which night this is.",
+      "A 1:1 question beats reading a shrug in a pile-on."
+    ];
   }
-  ranksRow.forEach(r=>{
-    if (r.pos === 1 && !r.tied && r.n >= 50){
-      facts.push("Your " + r.d + " is the highest in the family.");
-    }
-  });
-  return {ranksRow, facts};
+  if(isDplusI(S) && S.paceW.pole === "fast"){
+    return [
+      "Treat a first time from " + n + " as a start, not an itinerary.",
+      "If you need a slower yes, say so before it feels closed.",
+      "Do not ask " + p.o + " what the plan is. Hours, drive, and whether it holds are not " + p.p + " first move.",
+      "Use " + p.o + " to start the night. Do not use " + p.o + " to run it.",
+      "Do not make " + p.o + " sit on a live path until it goes cold."
+    ];
+  }
+  if(isSplusI(S)){
+    return [
+      "Give " + n + " a runway when you can. Buy-in is often the close.",
+      "Once people feel in, " + n + " is often ready. Another round of asking may chafe.",
+      "If you need a no, ask the same day, not in a pile-on.",
+      "Use " + p.o + " to hold the room: who is ok, who got skipped, whether this still feels like a welcome.",
+      "S is buy-in, not a hush. I is invitation, not a talking score. Ask what this night needs."
+    ];
+  }
+  if(isSplusC(S) && S.priW.pole === "people"){
+    return [
+      "Give " + n + " a runway when you can. Buy-in is often the close.",
+      "Do not close until people have had a say. That wait is often for voices, not only for the reservation.",
+      "Ask " + n + " for the real no the same day, in a 1:1 if the thread is loud.",
+      "Use " + p.o + " when the house is about to lock something that still has people who have not spoken.",
+      "Once those people have spoken, stop the extra rounds. A third pass is stalling."
+    ];
+  }
+  if(isSplusC(S) && S.paceW.phrase.indexOf("very") >= 0){
+    return [
+      "Give " + n + " a runway when you can. Buy-in is often the close.",
+      "Send the details when the call has to be right. The extra look is care.",
+      "Name a time when good enough ships. A third round can stall.",
+      "Use " + p.o + " when the night has to hold: hours, drive, whether this actually works.",
+      "Do not demand a yes before the check, and do not turn " + p.o + " into a polling cartoon."
+    ];
+  }
+  if(isSplusC(S) && (S.vis[0] === "S")){
+    return [
+      "Give " + n + " a runway when you can. Buy-in is often the close.",
+      "Send the details when the call has to be right. The extra look is care.",
+      "Name a time when good enough ships. A third round can stall.",
+      "Use " + p.o + " for buy-in plus a check: people can live with it, and it holds.",
+      "Do not demand a yes before the look, and do not keep asking after both jobs are done."
+    ];
+  }
+  if(isSplusC(S) || isDplusC(S)){
+    return [
+      "Give " + n + " a runway when you can.",
+      "Send the details when the call has to be right. Do not demand a yes before the check.",
+      "Name a time when good enough ships.",
+      "Use " + p.o + " to make the plan actually work: hours, drive, the reservation.",
+      "Ask what still does not sit right, then stop. The look needs an end."
+    ];
+  }
+  if(hasVis(S, "D")){
+    return [
+      "Treat a first path from " + n + " as a starting point, not the whole house being in.",
+      "If you need a slower yes, say so before it feels closed.",
+      "Ask who still needs time.",
+      "Use " + p.o + " to name a path so the night has somewhere to go.",
+      "After the close, look back at whether people are actually in."
+    ];
+  }
+  return [
+    "Ask " + n + " what this plan needs.",
+    "Give a little runway and a clear ask.",
+    "One night is not the type.",
+    "Use whatever gift showed up this week, on purpose.",
+    "A same-day sentence beats a shrug in a thread."
+  ];
 }
 
 function personHome(p){
   const S = personSnapshot(p);
-  const bespoke = PERSON_READS[p.id] || genericPersonRead(S);
-  const fam = personFamily(p);
+  const n = S.name;
+  const N = S.N;
+  const scores = "D " + N.D + ", I " + N.I + ", S " + N.S + ", C " + N.C;
+  const lede = sliderLine(S) + " Scores: " + scores + ".";
+  const tpp = tablePlanPressure(S);
   return {
-    name: S.name,
-    snapshot: S,
-    hero: bespoke.hero,
-    read: bespoke.read,
-    annoy: bespoke.annoy,
-    light: bespoke.light,
-    living: bespoke.living,
-    receipts: personReceipts(p, S),
-    famFacts: fam.facts,
-    ranksRow: fam.ranksRow,
-    generated: !PERSON_READS[p.id]
+    name:n, lede:lede, scores:scores,
+    table:tpp.table, plan:tpp.plan, pressure:tpp.pressure,
+    snapshot:S,
+    notThis: "",
+    letterParas: letterParasFor(S),
+    stack: stackPara(S),
+    pointers: personPointers(S).slice(0, 5),
+    predictions: [],
+    caveat: PERSON_CAVEAT,
+    working: workingParas(S),
+    scenes: sceneParas(S),
+    hard: hardParas(S)
   };
 }
 
-/* ============================= pair reads ============================= */
-/* Keyed by the two ids, sorted, joined with "|". A is always the first id
-   alphabetically. misreadA = how A tends to get read wrong by B.
-   giveA = what A gives B. moveA = the one move for A. */
 
-const PAIR_READS = {
-
-"alex|ashley": {
-  read: [
-    "Two engines, one loud and one silent. Alex's drive announces itself from the hallway; Ashley's runs so quietly that people regularly discover it only in the results. She will match him on substance — on where the bar should be, on wanting the thing actually done — while declining, completely, to match him on volume. Watch them long enough and you notice the pattern: he generates the momentum, she decides what survives it.",
-    "The pace gap is real but it isn't the interesting gap. The interesting one is signal style. He processes in public — the pitch is the thinking. She processes in private and publishes conclusions. So he can mistake her for uncommitted when she's already three moves in, and she can mistake his out-loud draft for a final position when it was 60% test balloon."
-  ],
-  misreadA: "When Alex pushes to lock something in tonight, Ashley can hear carelessness about the details she'd want checked. It isn't — speed is what conviction looks like on him, and he assumes anything broken can be fixed in motion.",
-  misreadB: "When Ashley answers in a level voice, Alex can hear lukewarm. It's the opposite. The flatter her delivery, the more decided she already is; she just refuses to sell what she's concluded.",
-  giveA: "Alex gives Ashley ignition — the shove that turns her well-built plans into events with dates on them.",
-  giveB: "Ashley gives Alex the version of his idea that survives Monday morning: same swing, load-bearing walls added.",
-  moveA: "Ask for her read before you've sold the room, not after. Afterward all you'll get is a polite audit.",
-  moveB: "Say the number out loud. Your conviction lives in understatement, and understatement is the one dialect he can't hear."
-},
-
-"alex|colin": {
-  read: [
-    "The family's full wingspan, in one pairing. One of you runs on ignition, the other on continuity, and between you two you cover just about the entire map — which means that anything the two of you actually agree on has been stress-tested from both ends and is probably true.",
-    "The mechanism to understand is time. Alex treats a decision as a race that started the moment it was mentioned; Colin treats it as something being built, which cannot be hurried without changing what gets built. Neither of you is doing the other one's step wrong — you are doing different steps. Alex is making sure the thing happens. Colin is making sure the thing holds. A family needs both jobs done, and it is genuinely lucky when they're done this well, this far apart."
-  ],
-  misreadA: "Alex's instant certainty can read to Colin like not caring whether it's right. Wrong: it's confidence that wrong can be fixed later. Moving is how Alex takes a thing seriously.",
-  misreadB: "Colin's pause reads to Alex like a no forming, or worse, like nothing happening. Wrong: it's the answer being assembled, whole. When it arrives it will be the finished sentence — and it will not have changed because someone repeated the question louder.",
-  giveA: "Alex gives Colin motion — the outside world showing up with plans, energy, and a reason to leave the routine, which Colin would rarely generate but often quietly enjoys.",
-  giveB: "Colin gives Alex ground truth. When something finally passes Colin, it is actually done, actually solid, actually true — a certainty Alex can't produce at his own speed.",
-  moveA: "One change at a time, delivered early, with a date the answer is needed by. Then leave. The wait is the cost of the good answer.",
-  moveB: "Give the verdict unprompted, before the deadline. He can build anything around a real answer; it's the silent interval he can't use."
-},
-
-"alex|derek": {
-  read: [
-    "The seller and the auditor. Alex leads with the version of events where it all works; Derek leads with the list of reasons it might not — not because he's negative, but because finding those reasons is what caring about an outcome looks like on him. These are two complete, opposite theories of helpfulness, and each of you privately suspects the other one's theory is a character flaw.",
-    "It's worth saying what the numbers say: this isn't one intense person and one mild one. It's two intense people pointed in different directions — one at the room, one at the work. Derek's flat reception of a pitch is him taking it seriously enough to test the load-bearing walls. Alex's overselling isn't dishonesty; it's momentum-building, the belief that confidence is a construction material. Both are correct often enough to keep the argument alive forever."
-  ],
-  misreadA: "Alex's enthusiasm can smell like inflation to Derek — adjectives where numbers should be. But the enthusiasm is real, and it does real work: half of what Alex promises comes true because he promised it in front of people.",
-  misreadB: "Derek's scrutiny can land on Alex like a vote of no confidence. It's the opposite of indifference. Derek doesn't bother checking things he's written off — the inspection is the compliment.",
-  giveA: "Alex gets Derek's work seen. Things Derek builds quietly would stay quietly built; Alex is distribution.",
-  giveB: "Derek keeps Alex's swings from landing on rot. One precise Derek question at the right moment is worth three of Alex's later apologies.",
-  moveA: "Bring Derek the numbers version first — the pitch with the adjectives removed. He'll add conviction on his own once it checks out, and his conviction doesn't wobble.",
-  moveB: "Say the approval out loud, not just the concern. You inspect because you care; tell him the part that passed inspection, or all he hears is the 20% that didn't."
-},
-
-"alex|elliana": {
-  read: [
-    "Elliana can genuinely meet Alex at his speed — and chooses, room by room, whether to. That makes this pairing lighter than most of Alex's: less translation overhead, more actual play. It also hides a subtle imbalance worth naming: when the two of you sync, it's almost always because she moved.",
-    "Her range is doing quiet work here. She can ride the momentum when the plan is good, and she can put a hand on the wheel when it isn't — and she does both so smoothly that Alex can go months without noticing which one has been happening. He reads the compatibility as natural. It is. It's also, partly, skilled labor."
-  ],
-  misreadA: "Alex's constant broadcast can read to Elliana like a man who doesn't need input. He does — he just collects it as reactions rather than memos. Her raised eyebrow genuinely changes his course; neither of them tends to notice it happening.",
-  misreadB: "Her matched energy can read to Alex as full agreement. Sometimes it's just skill — meeting the room's speed while she decides what she actually thinks. Matched is not the same as convinced.",
-  giveA: "Alex gives Elliana a room that uses her whole range instead of filing her under one letter — plans big enough to need every mode she has.",
-  giveB: "Elliana is Alex's translator to the patient majority: the one who can take a plan launched at full speed and re-deliver it in a dialect the unhurried people can hear.",
-  moveA: "Ask which mode she's in before assuming it's the one you needed. The answer costs ten seconds and is never what you'd have guessed.",
-  moveB: "Tell him when you're matching versus when you're actually in. He can take a real no at full speed — it's the skilled maybe that gets lost on him."
-},
-
-"alex|kate": {
-  read: [
-    "Two people-people, running on entirely different definitions of the word. Alex's people-focus is the spotlight kind — energy, audience, the room lighting up. Kate's is the hearth kind — everyone gathered, everyone fed, nobody stranded. Put them on the same evening and it's a natural division of labor: he's the reason there's an occasion, she's the reason it feels like home. Neither could do the other's half.",
-    "The friction, when it comes, is about tempo at the threshold of decisions. Alex closes fast because open decisions leak energy; Kate keeps things open because closing early might strand somebody. He's optimizing the plan's momentum, she's optimizing its headcount — both genuinely people-motivated, pulling on opposite ends of the same evening."
-  ],
-  misreadA: "Alex's push to lock the plan can land on Kate as steamrolling the very people the plan is for. It isn't a bulldozer — it's his belief that a decided plan is a kindness, because everyone can finally relax.",
-  misreadB: "Kate's keep-it-open instinct can read to Alex as indecision. It's not — it's her running the guest list in her head, holding the door for whoever hasn't answered yet. That's a job, and she's doing it.",
-  giveA: "Alex gives Kate's gatherings their spark — the story at the table, the reason half the room showed up.",
-  giveB: "Kate makes Alex's wins land softly. She's the difference between a plan people went along with and a plan people were glad about.",
-  moveA: "Let the plan breathe one extra round before you close it. The people Kate is holding the door for are usually worth the wait.",
-  moveB: "Tell him your real preference in plain words. He can take it — what he can't do is read the one signal you're best at: graceful accommodation."
-},
-
-"alex|mike": {
-  read: [
-    "Two deeply social people, mounted on opposite chassis. Alex's sociability is offense — pitch, occasion, the plan that needs a headcount by nine. Mike's is defense — ease, the running joke, the temperature held steady. They can carry an evening between them for hours, and it looks effortless because for both of them it mostly is.",
-    "The thing to watch is what happens under Alex's push. Mike absorbs it. He'll agree, go along, keep it light — and Alex banks each easy yes as a real one. Most are. But Mike's peacekeeping yes and his actual yes are pronounced identically, and Alex, moving at speed, has no reason to check which one he just heard. The gap only surfaces later, as plans that quietly evaporate rather than get declined."
-  ],
-  misreadA: "Alex's directness can feel like pressure to Mike even when nothing's being demanded — throughput reads as urgency. Most of the time Alex isn't pushing; he's just moving, and anyone nearby feels the wind.",
-  misreadB: "Mike's easygoing yes reads to Alex as commitment. Often it's hospitality — the answer that keeps the moment pleasant. The tell isn't in the words; it's in whether Mike ever mentions it again.",
-  giveA: "Alex gives Mike occasions — the plans and mild adventures that Mike would never initiate and almost always enjoys.",
-  giveB: "Mike gives Alex a rare thing: company with no scoreboard. Around Mike, nothing has to be won.",
-  moveA: "Ask for his real pick twice, casually. The first answer is hosting; the second one's his.",
-  moveB: "Give him the real no at the moment it forms. He'd honestly rather have it than the yes that dissolves next week."
-},
-
-"alex|renee": {
-  read: [
-    "The improviser and the itinerary. Alex generates plans the way weather generates fronts — abundantly, on the move, with revisions mid-sentence. Renee builds plans the way bridges get built: once, properly, in advance. The magic, when it works, is obvious: his sparks plus her load-bearing structure equals things that actually happen and are actually good. The tax is just as obvious: every one of his mid-course swerves lands somewhere in a sequence she has already built.",
-    "Understand what a plan is to each of you and the whole pairing decodes. To Alex a plan is a living thing — improving it at 4 p.m. is devotion, not disruption. To Renee the plan was finished, and finished is a place she likes. Neither definition is wrong. But only one of you can hear “small change” and feel the true size of it."
-  ],
-  misreadA: "Alex's swerves read to Renee as disrespect for work she already did. They aren't aimed at her — he genuinely experiences a changed plan as a gift to the plan. He is upgrading, in his head, right up until he sees her face.",
-  misreadB: "Renee's logistics questions land on Alex as brakes. They're the opposite — they are how she says yes. She's already building the thing; the questions are construction sounds.",
-  giveA: "Alex puts things on Renee's calendar worth planning — occasions with some heat on them, instead of another quiet weekend that plans itself.",
-  giveB: "Renee is why Alex's ideas have a survival rate. Sparks are cheap; she's the difference between a great idea and a great story about an idea that almost happened.",
-  moveA: "Freeze the plan 48 hours out. Give the itch one deadline: improvements welcome until Thursday, then the plan is a building, not a draft.",
-  moveB: "Flag the two details that actually matter instead of auditing all ten. He'll honor a short list forever; a long one he'll charm his way around."
-},
-
-"alex|sofia": {
-  read: [
-    "The broadcaster and the ballast. Alex thinks at full volume — the pitch, the revision, the callback to the joke from an hour ago. Sofia runs almost silent, and none of it is absence: she's tracking everything, deciding most of it doesn't require her, and spending words only where they change something. Two completely different information styles, one loud, one lossless.",
-    "Be precise about what Sofia's quiet is, because profiles like hers get cartooned. She is not sitting there anxiously monitoring everyone's feelings — her steadiness is self-possession, not worry. She has usually reached her conclusion well before the discussion ends; she simply sees no reason to race anyone to it. Alex fills rooms; Sofia outlasts them. Both are forms of confidence."
-  ],
-  misreadA: "Alex's volume can read to Sofia as a demand that everyone perform a reaction. Mostly it isn't — the broadcast is just his thinking made audible, and he'd genuinely rather have her real answer than her applause.",
-  misreadB: "Sofia's economy of words can read to Alex as no opinion present. Wrong — the opinion is fully formed and on the shelf. She'll hand it over when asked directly, and it will arrive suspiciously complete.",
-  giveA: "Alex brings the outside world in — noise, plans, and stories Sofia would never chase and quietly enjoys having delivered.",
-  giveB: "Sofia is weatherproof. Alex's storms — enthusiasm, frustration, the whole broadcast day — break on her and nothing moves, and that steadiness is worth more to him than agreement.",
-  moveA: "Ask her straight, then let the answer arrive at her speed. It was ready before you asked; the pause is just the walk to the shelf.",
-  moveB: "Say the conclusion you already reached out loud. He honestly cannot hear the silent one, and he'd rather be corrected than unopposed."
-},
-
-"ashley|colin": {
-  read: [
-    "Two careful people with different clocks. Ashley's carefulness has drive bolted to it — a standard plus a deadline, done right and done by Friday. Colin's carefulness has steadiness underneath — a standard plus patience, done right no matter when. Same destination, different physics: she applies force to the finish line; he removes hurry from the equation entirely.",
-    "They respect each other's work almost automatically, which makes this one of the quieter pairings in the family. The rub is small but persistent: pace at the margins. Her “this is taking too long” and his “this takes what it takes” are both quality arguments — hers about the cost of open loops, his about the cost of closed-too-soon."
-  ],
-  misreadA: "Ashley's push toward done can read to Colin like corners about to be cut. They won't be — her standard travels with the deadline. Done-right-by-Friday is one word in her language.",
-  misreadB: "Colin's pace can read to Ashley as lack of urgency. It isn't — it's thoroughness with no ego attached to speed. The job arrives finished, which was the assignment.",
-  giveA: "Ashley gives Colin the nudge over the line — the small applied force that turns nearly-finished into finished.",
-  giveB: "Colin gives Ashley permission she rarely gives herself: to let a thing take the time it actually takes.",
-  moveA: "Set the deadline with him once, at the start, then stop steering. He keeps deadlines he agreed to; he resists ones applied mid-task.",
-  moveB: "Report percent-done without being asked. It's not oversight — silence is where her urge to manage grows."
-},
-
-"ashley|derek": {
-  read: [
-    "The family's understatement summit. Two people with high standards and no interest in performing them, doing quality-control in adjacent lanes: Derek's is craft — is the thing itself right; Ashley's is operations — is the whole system moving and right. They recognize each other instantly and rate each other highly, in the currency both prefer: zero fuss.",
-    "The failure mode isn't conflict — it's silence. Two understaters can run for months on nods, each assuming the other's non-comment means full alignment. Between these two, nothing important gets said twice, which is elegant right up until the one time it needed saying twice."
-  ],
-  misreadA: "Ashley's drive for efficiency can read to Derek as impatience with proper craft. It's not — she'll spend the time where the time buys quality; she just refuses to spend it on ceremony.",
-  misreadB: "Derek's one-more-check can read to Ashley as distrust of work she already finished. It's nothing personal — he re-checks his own work harder than anyone's.",
-  giveA: "Ashley ships what Derek deepens — she's the reason his standard reaches the world on a schedule.",
-  giveB: "Derek is the second set of eyes Ashley actually trusts, which is a list with almost nobody on it.",
-  moveA: "Grant the extra day when the stakes are real. His delay is almost always buying something.",
-  moveB: "Name it when it's done enough. She'll match your standard; she just needs to hear the standard has a floor."
-},
-
-"ashley|elliana": {
-  read: [
-    "On paper, the family's closest pair — and the numbers underneath tell a stranger, better story: nearly identical profiles produced by noticeably different answers. You landed on the same shape from different directions. Ashley holds one consistent line everywhere she goes; Elliana arrives at balance by ranging across the whole map and averaging out. Same silhouette; one of them is a statue and one is a gyroscope.",
-    "In practice you're the pair most at risk of false consensus. You assume you've read each other — reasonably, since you're so alike on paper — and skip the confirming sentence other pairs are forced to say out loud. Most days that costs nothing. On the days it costs, it costs quietly and gets discovered late."
-  ],
-  misreadA: "Ashley's consistency can look like rigidity to Elliana — one setting, everywhere. It's chosen, not stuck: she found the mode that works and sees no reason to freelance.",
-  misreadB: "Elliana's flexing can look like a lack of conviction to Ashley. It's the opposite of empty — every mode is a real conviction about what this particular room needs.",
-  giveA: "Ashley shows Elliana what holding one line buys: compounding returns, a reputation that walks in ahead of you.",
-  giveB: "Elliana shows Ashley there's more than one right way to be — and covers the rooms Ashley's one setting doesn't fit.",
-  moveA: "Say the assumption out loud before acting on it. You two skip that step because you're usually right; the exceptions are expensive.",
-  moveB: "Same move, other direction. You read her well, not perfectly — and she's harder to read than she looks."
-},
-
-"ashley|kate": {
-  read: [
-    "The standard-bearer and the gatherer. Ashley optimizes the outcome; Kate optimizes the table. It's easy to shorthand that as head versus heart and wrong to: Ashley's outcomes are for people, and Kate's warmth has real spine under it. What differs is which failure each finds unacceptable. Ashley cannot stand a preventable mess; Kate cannot stand a preventable hurt.",
-    "They make an excellent tag team when they remember they're on one: Ashley says the thing that must be said, Kate repairs the room afterward — or Kate senses the temperature and Ashley re-plans around it. Run in sequence, that's a complete skill set. Run in parallel with no coordination, they simply exhaust each other."
-  ],
-  misreadA: "Ashley's directness can land on Kate as coldness. It's actually respect — Ashley doesn't pad things for people she rates, and she rates Kate.",
-  misreadB: "Kate's harmony-keeping can read to Ashley as conflict-avoidance that lets problems age. Sometimes. But mostly it's a real job — someone has to keep the room whole while the problem gets fixed, and nobody does it better.",
-  giveA: "Ashley says the hard thing so Kate doesn't have to carry it unsaid — and Kate is always carrying at least one.",
-  giveB: "Kate warms the rooms Ashley has to be effective in. People take Ashley's high standards better with Kate's welcome around them.",
-  moveA: "Spend one warm sentence before the useful ones. It changes the exchange rate on everything after.",
-  moveB: "When she handles the hard call, let it stay handled. Re-soothing everyone afterward quietly re-opens it."
-},
-
-"ashley|mike": {
-  read: [
-    "Quiet drive next to quiet ease. Ashley is always mildly at work — assessing, improving, keeping the operation tight. Mike is fluent in the opposite: keeping things loose enough that everyone can breathe. Neither performs, neither fusses, so from the outside this pairing looks like nothing but calm. Inside it there's a low-grade philosophical dispute about what a Saturday is for.",
-    "It works because each secretly rates what the other has. Ashley knows her idle runs too high, and Mike's company lowers it without her having to announce a break. Mike knows his days can dissolve, and her structure gives them a spine without him having to build one."
-  ],
-  misreadA: "Ashley's standing standards can feel to Mike like ambient judgment — as if the bar being visible means it's aimed at him. It mostly isn't; the bar is just always in her hand.",
-  misreadB: "Mike's low gear can read to Ashley as unserious. It's not — it's a discipline of its own. Keeping a room easy for years takes exactly the consistency she respects; it just doesn't produce a deliverable.",
-  giveA: "Ashley gives Mike's easy days a spine — the two fixed points that keep loose from becoming lost.",
-  giveB: "Mike gives Ashley the off-switch she doesn't naturally own.",
-  moveA: "Ask, don't assign. He'll do nearly anything asked warmly, and quietly resist the same thing issued as a task.",
-  moveB: "Deliver the small thing exactly when you said. It buys more peace with her than a month of pleasantness."
-},
-
-"ashley|renee": {
-  read: [
-    "Two careful planners, one household style — and different centers of gravity. Renee plans the event: the sequence, the logistics, the day running right. Ashley plans the outcome: the goal, the resources, the result holding up later. Usually those are the same plan and this pair hums. When they diverge, each is startled to learn the other was optimizing something else all along.",
-    "The kinship is real: neither wings it, neither needs credit, both notice everything. That mutual competence is also the trap — you extend each other so much benefit of the doubt that alignment gets assumed instead of checked, and the answer sheets say your instincts differ more than your reputations do."
-  ],
-  misreadA: "Ashley's outcome-focus can read to Renee as indifference to the how — as if the day itself were a detail. It isn't; she just trusts Renee's how completely enough to stop watching it.",
-  misreadB: "Renee's process-focus can read to Ashley as fussing over mechanics after the destination's been settled. But the mechanics are the caring — the plan is how she holds people.",
-  giveA: "Ashley holds the why steady, so Renee's beautifully built how is always pointed at the right thing.",
-  giveB: "Renee makes Ashley's outcomes land on schedule and intact. Strategy without her is a memo.",
-  moveA: "Tell her the priority ranking out loud — which parts are load-bearing, which are nice-to-have. She'll build to it exactly.",
-  moveB: "Flag early when the plan starts serving itself. She'd rather re-plan than find out at the table."
-},
-
-"ashley|sofia": {
-  read: [
-    "Quiet competence squared. Neither performs, neither fusses, both deliver — different directions. Ashley's competence points forward: improve it, tighten it, get it where it should be. Sofia's points down, into the foundation: keep it steady, keep it true, keep it running. An improver and a maintainer, both allergic to announcing themselves.",
-    "The gap worth naming is what done means. For Ashley, done is a rung — pause, then reach for the next one. For Sofia, done is a place — arrive, and be there. Neither reads the other's relationship to finished quite right, and both are a little wrong about it in the same conversation."
-  ],
-  misreadA: "Ashley's constant improving can read to Sofia as never-satisfied — as if nothing anyone maintains could be enough. It's not aimed at her; the ratchet is just always on.",
-  misreadB: "Sofia's contentment can read to Ashley as low ambition. Look again: keeping something good, steady, for years, without drama, is an achievement — Sofia's ambition is stability, and she's better at it than anyone.",
-  giveA: "Ashley opens the doors Sofia would never push on — the upgrade, the ask, the change that turns out to be worth it.",
-  giveB: "Sofia shows Ashley that enough exists, and what it feels like to stand on it.",
-  moveA: "Celebrate the maintained thing, not just the improved one. What she's holding steady is invisible precisely because it's working.",
-  moveB: "Tell her one thing you'd change. She'll make it happen at speed — she's just not going to guess."
-},
-
-"colin|derek": {
-  read: [
-    "The quiet alliance. Two people who never needed to explain themselves to each other — the same unhurried clock, the same distaste for fuss, the same instinct to do it properly or not at all. Derek's version leans exacting: the standard is the point. Colin's leans steady: the constancy is the point. Adjacent species, effortless coexistence.",
-    "There is no friction story here worth telling; the risk runs the other way. Two low-broadcast people can go months on pure autopilot — comfortable, wordless, and quietly out of date about each other. Each reads the other's non-comment as all good, and it almost always is. Almost."
-  ],
-  misreadA: "Colin's silence is comfort, not distance — but even Derek, fluent in silence, can occasionally file it as nothing to report when something's slowly going on.",
-  misreadB: "Derek's exactness could look, from anyone else, like criticism. Colin mostly reads it right: that's just how Derek handles a thing he cares about — with calipers.",
-  giveA: "Colin gives Derek the easiest company he has — a room where nothing needs performing and nothing needs checking.",
-  giveB: "Derek gives Colin a peer standard — the one person whose “done right” means the same thing his does.",
-  moveA: "Say one real thing out loud per visit. It'll feel unnecessary. It's the maintenance the autopilot doesn't do.",
-  moveB: "Same move back. Between you two, someone has to be the talkative one, and it's a two-way tie for last."
-},
-
-"colin|elliana": {
-  read: [
-    "The fixed point and the gyroscope. Colin is the same person in every room — that's his gift, and he pays for it in flexibility. Elliana is whatever the room is missing — that's hers, and she pays for it in being hard to pin. Each has exactly what the other traded away, which makes this pairing far more complementary than it looks from the outside.",
-    "She reads him better than most because reading is her native skill; he anchors her better than most because anchoring is his. The distance between their scores is real, but it behaves less like a gap and more like a division of labor: one of them holds the ground, one of them covers it."
-  ],
-  misreadA: "Colin's sameness can read to Elliana as refusal to meet her partway. But he isn't withholding other versions of himself — there's one version, offered whole. That's the entire gift.",
-  misreadB: "Elliana's shifting can read to Colin as changeability — and he's built to distrust what changes. Her mode changes; her substance doesn't. Watch what she protects across all the modes and you'll see how consistent she actually is.",
-  giveA: "Colin is Elliana's fixed reference — the one point on her map that never moves, which is precisely what a navigator needs.",
-  giveB: "Elliana is Colin's ambassador to rooms that need flex — she absorbs the improvisation so his routine doesn't have to.",
-  moveA: "Let her run point when plans go sideways. Improvisation costs her nothing and costs you plenty.",
-  moveB: "Don't test him for versions he doesn't have. Ask for the one he does — it holds weight."
-},
-
-"colin|kate": {
-  read: [
-    "Two drafts of the family's deep keel. Both of you run on steadiness first — patient, loyal, in for the long haul — and the difference is one letter doing a lot of work: her steadiness gathers, his holds. Kate's version points at the table: everyone in, everyone fed, the room made whole. Colin's points at the ground: the standard kept, the routine defended, the thing finished properly.",
-    "Together you're a kind of infrastructure — the reliable floor other people build their louder lives on. The one true gap is social metabolism. Her battery charges at the full table; his drains there, slowly, no matter how much he loves everyone at it. Neither of you is wrong about what an evening is for. You're measuring different evenings."
-  ],
-  misreadA: "Colin's early exits and quiet corners can read to Kate as not caring about the gathering. He cares by being there — presence is the whole statement. Working the room isn't a thing he owes; it's a thing he doesn't have.",
-  misreadB: "Kate's tending — the check-ins, the seconds, the who-needs-what scan — can read to Colin as fuss. It's not nervousness; it's her craft, as deliberate as his. The room runs because she's running it.",
-  giveA: "Colin gives Kate a fixed point that doesn't need managing — one person at the table who is simply, reliably fine.",
-  giveB: "Kate builds the warmth Colin gets to quietly live inside without ever having to generate it.",
-  moveA: "Give her gatherings two degrees more visible warmth — a sentence at the table, a thanks at the door. Costs you little. Lands enormous.",
-  moveB: "Count his presence as the participation it is. He came; that was the speech."
-},
-
-"colin|mike": {
-  read: [
-    "The no-wheel caucus. Neither of you wants to run anything or anybody — a rare, restful agreement — and you keep the peace in different registers: Mike keeps it warm, Colin keeps it still. Mike's ease has company in it, chatter, the light touch. Colin's has quiet in it, and the quiet is load-bearing.",
-    "This is one of the family's most comfortable pairings, with one asymmetry worth a sentence: Mike's version of comfortable includes talking, and Colin's version includes not. Neither is faking; the same couch means two different things. It works because neither needs the other to convert."
-  ],
-  misreadA: "Colin's minimal chat can read to Mike, occasionally, as unwelcome — as if the quiet meant the visit wasn't wanted. Backwards: comfortable silence is Colin's five-star review.",
-  misreadB: "Mike's banter can read to Colin as noise that wants hosting. It doesn't — it's Mike including him, no response required. The line was the gift; the laugh is optional.",
-  giveA: "Colin gives Mike an audience with no performance debt — the one room where the host can be off duty.",
-  giveB: "Mike keeps a thread running to Colin without ever making it a demand — included, never extracted.",
-  moveA: "Throw a line back now and then. One sentence keeps Mike's whole tank full.",
-  moveB: "Sit in his quiet without filling it. It isn't awkward to him — it's the good part."
-},
-
-"colin|renee": {
-  read: [
-    "Kindred keepers. Renee keeps the plan; Colin keeps the ground. Both of you experience predictability as care — a promise kept early, a day that runs the way it was said to run — which puts this pairing among the family's lowest-friction: nobody springs anything on anybody, ever, and both of you privately grade that as love.",
-    "The one seam: Renee's care is forward-looking — she wants things settled ahead, which means asking for commitments early. Colin's steadiness lives in the present tense — he'll commit solidly, but pressure to commit now, for later, reads like being rushed in slow motion. She's not rushing him; she's building. He's not stalling her; he's arriving."
-  ],
-  misreadA: "Colin's unbudging routine can read to Renee as inflexibility toward her plans. But the routine is where his yes lives — schedule with it rather than against it and he's the most reliable date on her calendar.",
-  misreadB: "Renee's early asks can feel to Colin like pressure. They're the opposite of pressure in her language — asking early is how she avoids ever having to ask urgently.",
-  giveA: "Colin is the one commitment on Renee's board that never wobbles — plan around him once and it's done forever.",
-  giveB: "Renee builds the ordered days Colin's steadiness runs best inside. Her plans are his routine, upgraded.",
-  moveA: "Answer her early asks early, even if the answer is “probably.” A probability she can plan with beats a certainty that arrives late.",
-  moveB: "Put changes on his calendar the moment you know them. His flexibility is real; it just runs on notice."
-},
-
-"colin|sofia": {
-  read: [
-    "The two quietest yeses in the family, and the pairing that needs the least translation of any of them. Same unhurried clock, same economy of words, same instinct to handle things rather than discuss them. Where most pairs here have to work out an exchange rate, you two clear transactions instantly — a look, a half sentence, done.",
-    "The only caution for a pairing this smooth is inheritance drift: with so little friction, everything defaults to precedent. Decisions stop being made and start being assumed — the same weekend, the same roles, the same silences — not because either of you chose it, but because nothing ever forced the choosing."
-  ],
-  misreadA: "Colin's settledness can read, even to Sofia, as the answer to a question she never quite asked. His contentment is real — but it will absorb an unraised issue indefinitely.",
-  misreadB: "Sofia's smoothness can read to Colin as everything's fine. It usually is. The exceptions run silent, and by the time one surfaces it has been true for a while.",
-  giveA: "Colin gives Sofia total steadiness — the one person whose calm needs no monitoring at all.",
-  giveB: "Sofia gives Colin the same, with a compass: she'll quietly steer the practical call while he holds the ground.",
-  moveA: "Every so often, ask the question neither of you needs: “anything you'd change?” The answer will be small and worth it.",
-  moveB: "Same move, both directions. In the family's calmest pairing, somebody still has to raise things — take turns."
-},
-
-"derek|elliana": {
-  read: [
-    "The fixed standard and the moving read. Derek holds one register — precise, level, permanent. Elliana holds all of them, and switches on purpose. He evaluates what's in front of him; she calibrates to it. The pairing works better than the distance suggests, because her range includes his register — she can meet him in exact, unhurried mode, and does.",
-    "What each should know about the other: his consistency isn't coldness toward her variety, and her variety isn't inconsistency of substance. Under her changing delivery the content holds steady — track what she says across three different rooms and it's the same position, dressed for the weather."
-  ],
-  misreadA: "Derek's single register can read to Elliana as indifference to nuance — one tool for every job. But precision is how he does nuance; the register doesn't move because the standard doesn't.",
-  misreadB: "Elliana's mode-shifts can trip Derek's inconsistency alarm — the thing his whole wiring distrusts. Grade her on outcomes, not delivery: the outcomes are as consistent as his.",
-  giveA: "Derek is Elliana's quality floor — the fixed standard that makes her flexibility safe to spend anywhere.",
-  giveB: "Elliana is Derek's range extender — the one who takes his precise, correct position and gets it heard in rooms that don't speak precision.",
-  moveA: "Judge the outcome, say so briefly. Your specific approval is worth ten of anyone else's applause to her.",
-  moveB: "Bring him the exact version — numbers in, adjectives out. It's a dialect you already speak; use it and he's yours."
-},
-
-"derek|kate": {
-  read: [
-    "Precision meets warmth, and each privately suspects the other is doing communication wrong. Derek transmits content: accurate, complete, unpadded. Kate transmits care: the point wrapped so it lands without bruising. Both styles work. They just fail differently — his by wounding where he only meant to inform, hers by softening a message until it no longer arrives.",
-    "Together, run in the right order, they're a complete system: his content, her delivery. Everything he most needs said to the family lands better through her; everything she most needs verified is exactly his craft. The pairing struggles only when each grades the other by their own rubric — his honesty scored as harshness, her kindness scored as imprecision."
-  ],
-  misreadA: "Derek's corrections can land on Kate as criticism of people. They're about the thing — always the thing, never the person. In his grammar, fixing your facts is a service to you.",
-  misreadB: "Kate's warmth-first can read to Derek as accuracy-last. It isn't — she usually knows the hard truth cold. She's just routing it through the version everyone will still be friends after.",
-  giveA: "Derek keeps the family's facts straight — the one source where the answer is checked before it's spoken.",
-  giveB: "Kate is how his truths land whole — heard, not just said.",
-  moveA: "One warm sentence before the fix. It's not padding; it's the handshake that gets the fix accepted.",
-  moveB: "Relay his point straight — softening it in transit changes it, and he'll notice the difference even when nobody else does."
-},
-
-"derek|mike": {
-  read: [
-    "Low friction, different fuels. Derek runs on standards; Mike runs on ease. Neither wants the spotlight, neither pushes people around, so the pairing idles beautifully — Mike keeps it light enough that Derek's checking never curdles into gloom, and Derek keeps enough rigor in the room that Mike's loose days still land on their feet.",
-    "The quiet dispute is over what deserves effort. Derek can't not care about quality; Mike can't not care about atmosphere. Each rounds the other's specialty down to optional — until the moment it saves the day, which, in both directions, it periodically does."
-  ],
-  misreadA: "Derek's exactness can feel like heaviness to Mike — weather that takes the fun out of a loose afternoon. It isn't a mood; it's attention. That's what his caring looks like out loud.",
-  misreadB: "Mike's looseness can read to Derek as not caring about quality. But Mike's medium is the room, not the artifact — and his mood-keeping is quality control, maintained to a standard Derek would respect if it were measurable.",
-  giveA: "Derek makes sure the easy day's actual stuff — the gear, the plan, the fix — genuinely works.",
-  giveB: "Mike keeps the temperature where Derek's precision reads as helpful instead of heavy.",
-  moveA: "Say “good enough” out loud sometimes, and mean it. It tells him the standard has an off-duty setting.",
-  moveB: "Hand him the thing you half-fixed. Finishing it properly is, no kidding, his idea of a good time."
-},
-
-"derek|renee": {
-  read: [
-    "The aligned auditors. Same operating system: check first, plan ahead, distrust winging-it, say it once. You two agree on more, before a word is spoken, than most pairs here manage after an hour — and your answer sheets bear that out. Renee runs the plans; Derek runs the verification; both of you consider preventable chaos a moral failing.",
-    "The shared blind spot is the interesting part. Between you there is no one whose job is the reckless yes — two careful people can politely decline their way through a decade of perfectly nice, perfectly optimized, slightly smaller life. Nobody's grabbing the wheel here, which is exactly the point, and occasionally the problem."
-  ],
-  misreadA: "Derek's checks can read, even to Renee, as doubt about her planning. Never — hers are the plans he checks least. The checking is just always on; it isn't aimed.",
-  misreadB: "Renee's forward-building can read to Derek as commitment pressure. It's not pressure; it's how she keeps urgency from ever existing — a goal he shares more than anyone.",
-  giveA: "Derek gives Renee verified ground — plans built on facts he's already tested twice.",
-  giveB: "Renee gives Derek's rigor somewhere to live — a real structure, on a real calendar, instead of a standard waiting for an occasion.",
-  moveA: "Once in a while, vote yes to the unplanned thing, out loud, first. From you it's a permission slip for both of you.",
-  moveB: "Same move. Between two careful people, somebody has to bring the recklessness ration, and it might as well rotate."
-},
-
-"derek|sofia": {
-  read: [
-    "Two quiet, thorough, unshowy people whose answer sheets agree at a rate most pairs can't touch. The shared ground is enormous: neither performs, neither rushes, neither says a thing twice. The difference is what leads. Derek's precision fronts the operation — the standard is the point, and the calm serves it. Sofia's steadiness fronts hers — the keel is the point, and the care serves that.",
-    "In practice: he's holding the work to spec, she's holding the world steady, and both jobs run so silently that each can underrate how much the other one is carrying. This is the pairing most likely to function perfectly for years and never once discuss it."
-  ],
-  misreadA: "Derek's detail-holding can read to Sofia as fuss over things that were fine. To him fine-unverified isn't a category — checked is how a thing becomes fine.",
-  misreadB: "Sofia's flexibility on specifics can read to Derek as lower standards. Look at what she's exact about: showing up, following through, staying level. Her precision is behavioral, and it never misses.",
-  giveA: "Derek makes sure what Sofia steadily maintains is worth maintaining — right at the core, not just running.",
-  giveB: "Sofia gives his standards a stable world to apply to — nothing thrashing, nothing dramatic, everything where it was left.",
-  moveA: "Tell her which detail is load-bearing so she can care about it your way. She'll hold it forever; she just prices details differently.",
-  moveB: "Hand him a real problem now and then — something to verify, fix, or figure. It's not burdening him; it's feeding him."
-},
-
-"elliana|kate": {
-  read: [
-    "The two room-readers. Both of you track the table nobody else is tracking — who's in, who's fading, what the temperature is — and you respond with different instruments. Kate adjusts the room: warmth up, plates full, that one pulled back in. Elliana adjusts herself: the register the moment needs, on demand. Between you, no guest goes unread.",
-    "You also cover each other's ranges: warmth alone doesn't land in every room, and Elliana has the other registers; range alone doesn't hold a family together, and Kate has the hearth. The friction, when it exists, is faint and specific — each of you can read the other's adjustment as a signal when it was just craft."
-  ],
-  misreadA: "Elliana's cooler modes can read to Kate as something's wrong — because in Kate's language a temperature drop is information. Usually it's just Elliana matching a different room than the one Kate is warming.",
-  misreadB: "Kate's constant warmth can read to Elliana as a single setting — as if Kate couldn't do the other registers. She can; she's chosen. The warmth is a discipline, not a limitation.",
-  giveA: "Elliana covers the rooms warmth alone can't carry — the tense ones, the formal ones, the ones that need an edge.",
-  giveB: "Kate gives Elliana somewhere to stop calibrating — a table where the mode is preset to welcome.",
-  moveA: "Tell her when a mode is just a mode. One sentence saves her an evening of quiet worry.",
-  moveB: "Borrow her range on purpose when warmth isn't landing. Handing her the hard room isn't failing at your job — it's staffing it."
-},
-
-"elliana|mike": {
-  read: [
-    "Two of the family's easiest people to be around, for opposite reasons. Mike is easy because he holds one comfortable register and keeps everyone in it. Elliana is easy because she'll match whatever register you brought. Put them together and there's no friction to find — which is itself the finding: someone has to generate a preference, and neither of you is reaching for the pen.",
-    "“Whatever you want” squared is a real phenomenon between you: two genuinely flexible people, each deferring to the other's deferral, choosing the default nobody chose. Nine times out of ten the default is fine. The tenth time, both of you had a real preference, and both of you yielded it to be nice — a small double loss that neither reports."
-  ],
-  misreadA: "Elliana's accommodation can read to Mike as truly having no preference. She has one — it's just parked behind her read of what keeps things easy, which is the language he speaks best.",
-  misreadB: "Mike's easygoing yes can read to Elliana as the full answer. It's the sociable layer; his actual pick shows up on the second, more casual ask.",
-  giveA: "Elliana brings the range — when the easy default won't do, she's the one who can shift the whole gear.",
-  giveB: "Mike brings the floor — around him, her calibration can finally idle, because the room is already handled.",
-  moveA: "Take turns going first. “I actually want X” from you frees him to have a preference too.",
-  moveB: "Same rule. Whoever names a real pick first that day wins the tenth time for both of you."
-},
-
-"elliana|renee": {
-  read: [
-    "The planner and the flex, closer in temperament than the labels suggest. Renee builds structure ahead of time because structure is how a day goes right. Elliana keeps her options open because reading the moment is how she gets it right. One optimizes before; one optimizes during. A well-run day usually needs both, in that order.",
-    "The trade works cleanly when each trusts the other's phase. Renee's plan gives Elliana a solid frame to improvise inside — and improvising inside a good frame is her best work. Elliana's in-the-moment reads catch what no plan could have known — and handing those to Renee early is how the next plan gets even better."
-  ],
-  misreadA: "Elliana's it-depends posture can read to Renee as unreliability about the plan. She's reliable about the outcome — she's just reserving the route, which is where her value lives.",
-  misreadB: "Renee's early-lock instinct can read to Elliana as a cage. It's a foundation. She locks the load-bearing parts so the day can afford Elliana's freelancing everywhere else.",
-  giveA: "Elliana handles the parts no plan covers — the mood shift, the surprise guest, the moment that needed reading, not scheduling.",
-  giveB: "Renee builds the frame that makes flexibility a luxury instead of an emergency.",
-  moveA: "Lock the two details she needs locked, early and cheerfully. It buys you the whole rest of the day loose.",
-  moveB: "Leave one block genuinely unplanned, on purpose, and let her run it. It's not a gap in the plan; it's a feature you can't build."
-},
-
-"elliana|sofia": {
-  read: [
-    "The adjustable and the anchored. Sofia holds one steady setting, chosen and true; Elliana carries the whole dial. What makes this pairing quietly good is that Elliana never has to perform for Sofia — steadiness doesn't ask the room to entertain it — and Sofia never has to adapt for Elliana, because adaptation is the one commodity Elliana never runs short of.",
-    "Each is also slightly illegible to the other in a predictable spot: constancy can't quite imagine choosing to shift, and range can't quite imagine not needing to. It's worth both of you knowing that the other's mode is chosen — Sofia's stillness is self-possession, not passivity, and Elliana's motion is calibration, not restlessness."
-  ],
-  misreadA: "Elliana's shifting can read to Sofia as restlessness — someone not yet settled. She is settled; the settling just lives underneath the modes, in what she protects across all of them.",
-  misreadB: "Sofia's sameness can read to Elliana as passivity — a person on default. It's the opposite: one deliberate setting, held on purpose, for years. That's not an absence of choosing. It's one long choice.",
-  giveA: "Elliana speaks for Sofia in rooms Sofia would rather not address — the flexible front end to a steady core.",
-  giveB: "Sofia is the fixed point Elliana can calibrate against — the reading that's always true.",
-  moveA: "Ask her the direct question others assume she'd have volunteered. She won't have; the answer will be worth it.",
-  moveB: "Tell her which mode you'd like more of. She takes requests — nobody ever thinks to make one."
-},
-
-"kate|mike": {
-  read: [
-    "The comfortable pairing — two warm-steady people, fluent in each other from the first sentence. Both of you read rooms, keep peace, and prefer everyone happy over anyone right. Kate does it as the gatherer, actively building the warmth; Mike does it as the regulator, keeping everything light and level. Same values, two different instruments, zero translation cost.",
-    "One shared trait runs deep enough to name: neither of you will start the hard conversation. Ever. Between two conflict-averse people, the difficult thing doesn't get half as much airtime — it gets none, indefinitely, while both of you tend the pleasantness around it. Nothing about this pairing needs fixing except that single missing job."
-  ],
-  misreadA: "Kate's tending can occasionally read to Mike as making things heavier than they need to be — a check-in where a joke would've done. Her check-ins are the joke's cousin: same goal, the room okay, different tool.",
-  misreadB: "Mike's deflecting humor can read to Kate as not taking the moment seriously. He is — the joke is him taking it seriously; it's a pressure valve installed on purpose.",
-  giveA: "Kate gives Mike's ease a destination — gatherings worth keeping light.",
-  giveB: "Mike gives Kate a co-host who never adds to the load — the one guest who's self-tending.",
-  moveA: "Whichever of you notices the hard thing first, says it — that's the rule, or it goes unsaid forever.",
-  moveB: "Same rule, and it's usually you who noticed. The gentle version counts; silence doesn't."
-},
-
-"kate|renee": {
-  read: [
-    "The gatherer and the coordinator. Kate fills the room; Renee makes the room run. Any occasion that has ever gone truly well owes something to both jobs — someone made everyone want to be there, and someone made sure there was somewhere to be, at a time, with food. Each of you privately believes her half is the harder half. You're both right.",
-    "The seam shows at the guest list and the clock: Kate's instinct says the more, the later, the merrier — the door stays open. Renee's says a headcount is a load-bearing number. Neither is wrong; a party is both a feeling and a logistics problem. The best ones happen when the two of you trade drafts instead of defending them."
-  ],
-  misreadA: "Kate's open-door spontaneity can read to Renee as chaos volunteering itself. It's hospitality — the extra chair is the whole point of the table.",
-  misreadB: "Renee's run-sheet can read to Kate as coldness around something that should be warm. The sheet is warmth, in her dialect — it's how she makes sure nobody, including Kate, is scrambling at six o'clock.",
-  giveA: "Kate supplies the reason everyone came.",
-  giveB: "Renee supplies the reason it worked.",
-  moveA: "Get her the headcount early — it's the one gift that makes her whole job possible.",
-  moveB: "Build one extra chair into every plan. Then her surprise guest is your contingency, already handled."
-},
-
-"kate|sofia": {
-  read: [
-    "Warm steadiness and cool steadiness. The same deep keel runs under both of you — patient, loyal, unshakeable — surfaced two ways: Kate's steadiness reaches outward, toward the table and the group; Sofia's holds inward, toward the small circle and the quiet. Neither of you is more caring than the other. You're running different ranges on the same current.",
-    "The gap to manage is scale. Kate's love wants everyone there; Sofia's wants almost no one, on purpose. Left unnamed, that difference miscounts itself as rejection in one direction and pressure in the other — when it's actually just two correct answers to “how many people make an evening good?”"
-  ],
-  misreadA: "Kate's gathering can land on Sofia as obligation pressure — another full table to attend. The invitation was never a demand; in Kate's language, being wanted there is the entire message.",
-  misreadB: "Sofia's small-circle preference can land on Kate as withdrawal from her. It isn't — Sofia at a quiet kitchen table is Sofia at maximum connection. The small room is the compliment.",
-  giveA: "Kate makes sure Sofia stays woven in — included, remembered, expected — without Sofia ever having to work the room for it.",
-  giveB: "Sofia is the guest Kate never has to host — and the one who sees the work behind Kate's effortless evenings.",
-  moveA: "Invite her without headcount pressure — “come for the first hour” is a real invitation, and it's the one she'll take.",
-  moveB: "Take the first hour, visibly glad. An hour of present beats an evening of polite, and she'd rather have it too."
-},
-
-"mike|renee": {
-  read: [
-    "Ease meets order. Renee builds the structure of family life — the plans, the calendar, the day that runs. Mike supplies the atmosphere inside it — the lightness that makes the structure worth building. Each of you is quietly essential to the other's product: her plans without his ease are efficient and a little airless; his ease without her plans dissolves into a nice afternoon nobody organized.",
-    "The friction, such as it is, is billing. Renee can feel like the only adult holding the clipboard while Mike floats; Mike can feel the clipboard hovering over perfectly good afternoons. Both readings are half-true, which is what keeps them alive."
-  ],
-  misreadA: "Mike's looseness can read to Renee as leaving the work to her. Some of it is obliviousness, not evasion — the logistics are simply invisible to him, the way the mood he's tending is invisible to most people.",
-  misreadB: "Renee's structure can read to Mike as the fun being scheduled out of things. The structure is what the fun stands on — somebody booked the thing everyone's being spontaneous at.",
-  giveA: "Mike keeps her plans humane — the loose air inside the itinerary that makes it a day instead of a program.",
-  giveB: "Renee keeps his days from dissolving — the two fixed points that turn a nice mood into an actual memory.",
-  moveA: "Own one lane completely — the drinks, the tickets, the driving — and run it every time without being asked. One owned lane retires years of clipboard.",
-  moveB: "Leave one stretch of the plan officially loose and let him fill it. Label it on the itinerary if it helps. It will not fail — that stretch is his craft."
-},
-
-"mike|sofia": {
-  read: [
-    "Two low-key people, different kinds of low-key. Mike's is social — easy company, light touch, the room kept comfortable. Sofia's is private — quiet competence, small circle, words used sparingly. Neither of you performs, neither pushes, and so you coexist beautifully: the family's least demanding pairing, in both directions.",
-    "The one crossed wire is what quiet means. To Mike, a quiet person might need warming up — so he brings the line, the nudge, the gentle include. To Sofia, quiet is the destination, already reached. His cheer isn't a misread of her so much as a standing offer; her non-uptake isn't a decline of him so much as a receipt."
-  ],
-  misreadA: "Mike's joking can read to Sofia as never-serious. The jokes are where his serious things live — listen to the third one; it's usually carrying something real.",
-  misreadB: "Sofia's quiet can read to Mike as a mood to fix. It isn't — it's her at optimal. She was having a good time before the rescue, and she'll be having one after.",
-  giveA: "Mike keeps a light line running to Sofia that never demands anything back — included, at her own volume.",
-  giveB: "Sofia gives Mike a rare audience: someone he never has to entertain, whose calm is real all the way down.",
-  moveA: "Match her quiet sometimes instead of warming it. Ten silent minutes in the same room is, to her, a complete conversation.",
-  moveB: "Laugh at the third joke. That one was for you."
-},
-
-"renee|sofia": {
-  read: [
-    "Near-twins on the careful, steady side of the family — and genuinely different at the leading edge. Renee's carefulness runs forward: plan it, sequence it, have it handled before it arrives. Sofia's steadiness runs deep: absorb it, stay level, handle it as it comes. One pre-loads the world; one out-lasts it. Both styles produce the same outward result — a person you can absolutely count on — by almost opposite internal methods.",
-    "Because you resemble each other so closely, each of you tends to assume the other wants what she wants — and you're usually right, which is exactly why the exceptions blindside you. The pair runs so smoothly on assumed agreement that neither of you has much practice at catching the one day the assumption is wrong."
-  ],
-  misreadA: "Renee's pre-planning can read to Sofia as worry — solving problems that don't exist yet. It isn't anxiety; it's how she buys the calm that Sofia generates natively.",
-  misreadB: "Sofia's take-it-as-it-comes can read to Renee as leaving things to chance. Nothing's being left — Sofia's capacity to absorb the unexpected is a plan; it's just stored in the person instead of the calendar.",
-  giveA: "Renee hands Sofia days that never need absorbing — pre-smoothed, pre-sequenced, nothing to outlast.",
-  giveB: "Sofia is the contingency Renee can't write down — whatever the plan misses, she's the one who takes it in stride.",
-  moveA: "Say the exception loudly when you have one. She calibrates to your usual yes; the rare no needs a flag on it.",
-  moveB: "Same rule, mirrored. Your agreement rate is why neither of you sees the exception coming."
-},
-
-"alex|cherie": {
-  read: [
-    "You share the one big thing and split nearly everything else — the receipts below put strange numbers on that, but the shape is simple. The big thing: people first. Both of you would trade a correct plan for a good room without a second thought, and neither of you has ever willingly read the fine print on anything. The split is how you get to people. Alex arrives through motion — the occasion, the pitch, the room lit up. Cherie arrives through attention — the thread kept, the person seen, the group held together long after the occasion ends.",
-    "Run those in sequence and it's a complete system. He generates the gatherings; she makes them belong to people. He recruits the bus; she checks at every stop that everyone's still on it. His page says the maintenance half of people-work is the part he never signed up for. Hers says it's the part she can't not do. So even the friction is the same machinery: his close-it-now and her nobody-left-behind are one value — the people — pulling on the same evening at two different speeds."
-  ],
-  misreadA: "Alex's push to lock the plan can land on Cherie as the people getting run over by the schedule. The intent is the opposite: to him a decided plan is an act of care — once it's closed, everyone can finally relax inside it, himself included.",
-  misreadB: "Cherie's one-more-check on everybody can land on Alex as the plan dying in committee. It isn't a stall. It's his own value running at ground level — and the moment she's satisfied nobody's stranded, her yes is instant.",
-  giveA: "Alex gives Cherie the occasions: the momentum and nerve that turn her web of people into actual rooms full of them.",
-  giveB: "Cherie gives Alex the durability: the relationships his momentum starts and was never going to maintain, kept warm between his big swings.",
-  moveA: "Before you close, hand her the last check on purpose — “anyone we're missing?” It costs thirty seconds and converts her worried yes into her full one.",
-  moveB: "Give him the fast no when it's no. He can rebuild a plan in a minute; what he can't use is a soft yes that dissolves on Thursday."
-},
-
-"ashley|cherie": {
-  read: [
-    "Same tempo, different cargo. You two move at nearly the same ready-but-unhurried pace and you're protecting different things: Ashley the outcome — done right, holding up later — and Cherie the people it lands on. Neither of you performs, so the difference stays quiet: one of you re-checking the plan, the other re-checking the people, both in a level voice.",
-    "What each should know about the other: Ashley's regard doesn't come out as warmth — it comes out as trust. The handed-over task, the unpadded answer, the assumption that you don't need managing: that's her affection in its native format. And Cherie's warmth isn't social filler — it's actual infrastructure, the reason the family's threads hold between occasions. You each run a maintenance program the other one barely sees."
-  ],
-  misreadA: "Ashley's economy — short answers, level voice, zero fuss — can read to Cherie as coolness toward her. Read it again: Ashley pads things for people she's managing. The unpadded version is her version of close.",
-  misreadB: "Cherie's people-first lens can read to Ashley as being soft on substance. It isn't softness — it's a different definition of the substance. Ask her about the people-load of a plan and the analysis comes back as rigorous as yours.",
-  giveA: "Ashley says the hard, load-bearing thing so Cherie's warmth never has to carry it.",
-  giveB: "Cherie keeps the temperature of the rooms Ashley needs to be effective in — and says Ashley's invisible work out loud, which almost nobody does.",
-  moveA: "One specifically warm sentence per visit. It costs you nothing and changes the whole exchange rate.",
-  moveB: "Bring her the ask straight, without the cushioning. She hears cushioning as distance."
-},
-
-"cherie|colin": {
-  read: [
-    "Underneath, you're alloys of the same metal: steadiness, loyalty, the long haul. Nobody ever had to teach either of you to stay. The canyon is on the surface — Cherie recharges by being with everyone, Colin by being with almost no one — and each of you finds the other's setting slightly unfathomable: company as fuel versus company as cost.",
-    "The good news is that steadiness recognizes steadiness. You keep your word at the same rate, hold people the same number of decades, distrust flash equally. Cherie reads Colin's presence-without-performance better than most, because under all her sociability she runs on the same quiet loyalty he does. And Colin — who lets very few people in — tends to keep the ones he has let in permanently."
-  ],
-  misreadA: "Cherie's sociability can read to Colin as noise with a bill attached — energy about to be requested of him. Mostly it's the opposite: she's including him with no response required. The invitation is the entire message.",
-  misreadB: "Colin's solitude can read to Cherie as a thread coming loose — someone drifting who needs pulling back in. He isn't drifting; he's at anchor. A quiet room with him in it is him participating.",
-  giveA: "Cherie keeps Colin stitched into the wider family without ever making him perform for it.",
-  giveB: "Colin gives Cherie the one relationship that needs no tending at all — a bond that holds at full strength through total silence.",
-  moveA: "Visit him in his format: small, quiet, no occasion. One of those outweighs five invitations.",
-  moveB: "Answer one thread a month — the text back, the chair at the table. Tiny for you; it refills her whole ledger."
-},
-
-"cherie|derek": {
-  read: [
-    "The sheets say you two are built to misread each other, almost by design: what she leads with — warmth, connection, the reaching-out — is the thing his answers decline hardest, and what he leads with — precision, the standard, the check — is the thing hers decline most. On paper, the family's cleanest built-in translation problem.",
-    "And yet, under opposite decorations, the same steadiness floor. Both of you are loyal in the unglamorous, decades-long way; both do what you said; neither performs for strangers. Derek's care arrives as accuracy — the thing fixed, the fact checked, the flaw caught before it cost anyone. Cherie's arrives as attention. Neither currency converts automatically. Both spend beautifully once you learn the exchange rate."
-  ],
-  misreadA: "Cherie's warmth can read to Derek as enthusiasm where information should be. But the signal is real — it just rides a different band. “How are they doing” is her version of a precise question.",
-  misreadB: "Derek's corrections and quiet can read to Cherie as coldness toward people. They were never aimed at people — they're aimed at problems, on people's behalf. Getting it right is how he keeps the people he rarely says much to.",
-  giveA: "Cherie carries Derek's presence through the family's social bloodstream — he stays connected without generating a single watt of it himself.",
-  giveB: "Derek is the one fixed point that needs no emotional weather-reading: what's said is exactly what's meant, every time.",
-  moveA: "Ask him one precise question about something he built. It's worth an hour of small talk, at a fraction of the cost to him.",
-  moveB: "Hand her one observed, specific thing about a person — “the kids seemed happy tonight.” From you, that lands like a speech."
-},
-
-"cherie|elliana": {
-  read: [
-    "One of you holds a setting; the other holds a dial. Cherie runs warmth as a constant — the same person at every table, tuned permanently to who needs what. Elliana runs range — matching whatever a room is short on, different registers on different days. The answer sheets barely overlap, and it isn't friction; it's two entirely different instruments pointed at the same subject: the room, and the people in it.",
-    "That shared subject is the connection. You both notice what the rest of the table misses — Cherie reads who needs attention, Elliana reads what mode the moment needs. Compare notes and you're close to omniscient about an evening. Just don't grade each other's instrument by your own: a setting isn't stubbornness, and a dial isn't fickleness."
-  ],
-  misreadA: "Cherie's constant warmth can read to Elliana as a single gear — as if she couldn't do the other registers. She has them. She's just concluded this one is the point.",
-  misreadB: "Elliana's cooler modes can read to Cherie as something wrong — or worse, as being shut out. Usually it's neither: it's the dial doing its job for a different room than the one Cherie is warming.",
-  giveA: "Cherie is a fixed source of being specifically seen — steady, personal attention that doesn't depend on which mode anyone's in.",
-  giveB: "Elliana meets Cherie in registers the rest of the family doesn't carry — and covers the rooms warmth alone can't.",
-  moveA: "Ask which mode she's in before reading anything into it. The answer takes ten seconds and beats the guess every time.",
-  moveB: "When it's just a mode, say so. One sentence spares Cherie an evening of quiet thread-checking."
-},
-
-"cherie|kate": {
-  read: [
-    "The family's warmth, in two adjacent workshops. Kate builds the containers: the gathering, the table, the tradition that makes everyone show up. Cherie tends the contents: the individual threads, the person-by-person attention inside and between those gatherings. From a distance the two jobs look identical. Up close they're adjacent, complementary, and almost never in each other's way — which is why your answer sheets run so parallel and the friction file is nearly empty.",
-    "The one watch-item is a shared reflex, not a difference. Neither of you sends the invoice. Kate swallows the hard thing to save the evening; Cherie takes the longer road so nobody's left out — and two absorbers can hold a great many unsaid things between them, in perfect mutual sympathy, indefinitely."
-  ],
-  misreadA: "Cherie's person-by-person focus can occasionally read to Kate as undervaluing the gathering itself — leaving the party for one real conversation in the kitchen. That kitchen conversation is her version of the party.",
-  misreadB: "Kate's event-tending can read to Cherie as attention spread thin — everyone fed, nobody deeply seen. But the container is care too: someone has to make the room exist before anyone can connect inside it.",
-  giveA: "Cherie deepens what Kate gathers — the follow-up thread that keeps living after Kate's table empties.",
-  giveB: "Kate builds the rooms Cherie's warmth works best in — a steady supply of occasions to tend people at.",
-  moveA: "Tell her what actually landed at her gatherings. The builder of the container almost never hears what happened inside it.",
-  moveB: "Hold one kitchen-conversation slot for her at every gathering. Her best work happens just off the main floor."
-},
-
-"cherie|mike": {
-  read: [
-    "Easy company, squared. Neither of you grabs wheels, manages people, or lets a room curdle — warmth is the default weather here and nobody's performing it. The difference is delivery. Mike keeps it ambient: the line, the low-key include, the temperature held from the middle of the room. Cherie makes it personal: the direct question, the remembered detail, the checked-on feeling. Same instinct, two ranges.",
-    "The pairing works because each of you covers the other's blind arc. Mike's ease can leave real things unsaid forever; Cherie's directness about people gives them somewhere to surface. Cherie's tending can tip into carrying too much of the family's weather by herself; Mike's lightness takes pounds off her without a word being said about it."
-  ],
-  misreadA: "Cherie's check-ins can read to Mike as more weight than the moment asked for. They aren't weight — they're her way of keeping the line open, which is the same job his jokes do.",
-  misreadB: "Mike's deflections can read to Cherie as a door closing. It's usually ajar: the jokes are where he keeps the true things. The third one in a row is carrying something.",
-  giveA: "Cherie asks the direct thing his ease never will — and makes it safe to answer.",
-  giveB: "Mike gives her warmth that requires no tending back — one relationship that maintains itself.",
-  moveA: "Let some check-ins be jokes. He answers the light version of a question more honestly than the heavy one.",
-  moveB: "Answer one straight now and then. She keeps the real answers, and that file is part of why this family works."
-},
-
-"cherie|renee": {
-  read: [
-    "The family's care, running on two different infrastructures. Renee's is built ahead of time: the plan, the arrangements, the day that goes right because she made it go right last Tuesday. Cherie's is spent in the moment: the attention, the noticing, the person-shaped adjustments no plan can schedule. Both systems are load-bearing. Each is invisible to anyone who only counts the other kind.",
-    "Which is the friction and the gift in one mechanism: you can each under-count the other's currency. A flawless day running on rails can read to Cherie as loving the day more than the people in it; a warm improvisation that blows the schedule can read to Renee as spending what she carefully budgeted. Trade ledgers now and then — each of you is rich in exactly what the other's system cannot produce."
-  ],
-  misreadA: "Cherie's in-the-moment swerves — the extra stop, the long goodbye, the guest who got folded in — can read to Renee as the plan being disrespected. They aren't against the plan. They're for the same people the plan was for.",
-  misreadB: "Renee's logistics-first questions can read to Cherie as coldness wrapped around something warm. The itinerary is her affection in written form — every handled detail is a person she thought about in advance.",
-  giveA: "Cherie supplies the felt warmth that turns Renee's flawless days into family instead of operations — and says out loud the work everyone else just consumes.",
-  giveB: "Renee builds the stage Cherie's care plays on: the day arranged, the logistics absorbed, the room ready for people to actually see each other.",
-  moveA: "Flag the swerve early — “we might add a stop.” Warned chaos is a footnote; surprise chaos is a demolition.",
-  moveB: "Write slack into the plan under her name. An unscheduled hour marked “Cherie” is the best line item on any itinerary."
-},
-
-"cherie|sofia": {
-  read: [
-    "The reacher and the rock. Cherie's steadiness comes with outreach attached: threads tended, people checked on, the connective work done out loud. Sofia's comes sealed: constancy without commentary, care proven by showing up and never by saying so. Same steady side of the family, nearly opposite ideas of what care should look like from the outside.",
-    "Neither needs converting. Sofia's quiet isn't a thread coming loose — her bonds don't fray from silence, which is exactly what makes her restful. And Cherie's outreach isn't neediness — it's the family's circulatory system doing its rounds. This pairing settles the moment each of you stops reading the other through your own operating manual."
-  ],
-  misreadA: "Cherie's check-ins can read to Sofia as being fussed over — a wellness check she never filed for. It isn't worry; it's just the direction Cherie's loyalty moves. Answering costs one sentence.",
-  misreadB: "Sofia's non-reaching can read to Cherie as distance. It's the opposite: Sofia doesn't tend her strongest bonds because they don't need tending. Being one of them is the compliment.",
-  giveA: "Cherie makes sure Sofia's quiet never turns into being overlooked — seen and included at zero social cost.",
-  giveB: "Sofia gives Cherie one bond with no reciprocity math at all. Nothing owed, nothing tracked. Just there.",
-  moveA: "Trust the sealed version. One real conversation a season with Sofia outweighs a month of check-ins.",
-  moveB: "Send the unprompted text twice a year. From you it's practically a parade, and she'll know exactly what it cost."
+function wileyFlavor(id){
+  if(id === "pace") return "Patient vs Driven (also Calm vs Energetic)";
+  if(id === "priority") return "the people in the room vs the work";
+  if(id === "frank") return "Tactful vs Frank (also Accommodating vs Strong-willed, Soft-spoken vs Forceful)";
+  if(id === "outgoing") return "Private vs Outgoing (also Lively vs Reserved, Skeptical vs Accepting)";
+  if(id === "daring") return "Careful vs Daring";
+  return id;
 }
-};
 
-/* Fallback for pairs involving someone new. */
-function genericPairRead(an){
+function continuaReads(an){
   const A = an.A, B = an.B;
-  const read = [];
-  if (an.pairingType === "both"){
-    const fast = A.pace > B.pace ? A : B, slow = fast === A ? B : A;
-    read.push(fast.name + " and " + slow.name + " differ on both of the big axes: speed, and what the speed is for. " + fast.name + " treats a decision as live the moment it's spoken; " + slow.name + " treats it as real once there's been time to sit with it. Neither is doing the other's step wrong — they're doing different steps.");
-  } else if (an.pairingType === "pace"){
-    const fast = A.pace > B.pace ? A : B, slow = fast === A ? B : A;
-    read.push("Same priorities, different clocks. " + fast.name + " is ready early; " + slow.name + " arrives more slowly and more finished. The gap between you is mostly timing — which is the most fixable gap there is, and the easiest one to mistake for something personal.");
-  } else if (an.pairingType === "priority"){
-    const task = A.pri > B.pri ? A : B, ppl = task === A ? B : A;
-    read.push("Same speed, different destinations. " + task.name + " is watching whether the plan holds; " + ppl.name + " is watching how it lands on the people in it. A good outcome needs both watched — this pair covers it naturally, as long as each remembers the other is guarding something real.");
-  } else {
-    read.push(A.name + " and " + B.name + " sit on the same side of the family's big axes. The overlap is comfortable and real. The remaining differences live in the four letters below — smaller gaps, but the ones that decide how a specific evening actually goes.");
-  }
-  const d0 = an.diffs[0];
-  if (d0 && d0.abs >= 12){
-    const more = d0.diff > 0 ? A : B, less = more === A ? B : A;
-    read.push("The single widest letter gap between you is " + d0.d + ": " + more.name + " " + (d0.diff>0?d0.a:d0.b) + ", " + less.name + " " + (d0.diff>0?d0.b:d0.a) + ". That's a real difference in " + LETTER_GLOSS[d0.d] + " — worth translating on purpose rather than discovering by accident.");
-  }
-  return {
-    read: read,
-    misreadA: A.name + "'s default reads differently up close than it looks from the outside — check the read before acting on it.",
-    misreadB: B.name + "'s default deserves the same courtesy in the other direction.",
-    giveA: A.name + " covers ground " + B.name + " doesn't naturally walk.",
-    giveB: B.name + " does the same in return — that's what the gap is for.",
-    moveA: "Ask one direct question you'd normally answer by assumption.",
-    moveB: "Same move, other direction. (This pair doesn't have a hand-written read yet — see the README to add one.)",
-    generated: true
-  };
-}
-
-/* ======================= generated pair material ====================== */
-
-function pairGeometry(an, pf, F){
-  if (!pf || !F) return "";
-  if (F.closestPair && pf.l1 === F.closestPair.l1) return "The two closest profiles in the family — " + pf.l1 + " points apart across the four scores.";
-  if (F.widestPair && pf.l1 === F.widestPair.l1) return pf.l1 + " points apart across the four scores — the widest gap in the family. Nobody here has more translating to do, or more coverage when they do it.";
-  if (pf.l1 <= F.avgL1 * 0.6) return pf.l1 + " points apart across the four scores — one of the family's closest pairings.";
-  if (pf.l1 >= F.avgL1 * 1.5) return pf.l1 + " points apart across the four scores — one of the family's wider spans. (Family average: " + F.avgL1 + ".)";
-  return pf.l1 + " points apart across the four scores, near the family average of " + F.avgL1 + ".";
-}
-
-function pairReceipts(an, pf, F){
-  if (!pf || !F) return [];
-  const A = an.A.name, B = an.B.name;
-  const out = [];
-  const n = F.nPairs;
-  const maxSame = F.mostMatched ? F.mostMatched.sameMost : null;
-  const minSame = n ? Math.min.apply(null, F.pairList.map(e=>e.sameMost)) : null;
-  const maxClash = F.mostInverted ? F.mostInverted.clash : null;
-  const minClash = n ? Math.min.apply(null, F.pairList.map(e=>e.clash)) : null;
-
-  let s1 = "You sat the same 28 questions. You picked the same “most me” answer on " + pf.sameMost + " of them";
-  if (pf.identical > 0) s1 += ", and on " + pf.identical + " you matched top to bottom — same “most,” same “least.”";
-  else s1 += ", and never once matched an answer top to bottom.";
-  if (n >= 6 && pf.sameMost === maxSame) s1 += " No pair in this family agrees more.";
-  if (n >= 6 && pf.sameMost === minSame) s1 += " No pair in this family agrees less.";
-  out.push(s1);
-
-  let s2;
-  if (pf.clash === 0){
-    s2 = "Not once did either of you claim an answer the other had rejected. Zero crossed wires in 28 questions.";
-  } else {
-    s2 = "On " + pf.clash + " of the 28, one of you claimed the very answer the other marked “least me.”";
-    if (n >= 6 && pf.clash === maxClash) s2 += " That's the highest crossover of any pair here: where one of you sees yourself is precisely where the other doesn't.";
-    if (n >= 6 && pf.clash === minClash) s2 += " No pair in the family crosses wires less.";
-  }
-  out.push(s2);
-
-  if (pf.sameLeast >= 10){
-    out.push("You agree hardest about what you're not: on " + pf.sameLeast + " questions you rejected the same option. Whatever you two are, you're jointly sure of what you aren't.");
-  }
-  if (F.closestPair && pf.l1 === F.closestPair.l1 && pf.sameMost <= 9){
-    out.push("And here's the strange one: you own the closest scores in the family, yet you matched answers on only " + pf.sameMost + " of 28 questions. You arrived at nearly the same shape from different instincts — same silhouette, different routes.");
-  }
-
-  /* nearest/farthest geometry between exactly these two people */
-  const PA = F.persons[an.A.p.id], PB = F.persons[an.B.p.id];
-  if (PA && PB && PA.nearest && PB.nearest && F.familySize >= 4){
-    const aN = an.A.name, bN = an.B.name;
-    if (PA.nearest.id === an.B.p.id && PB.nearest.id === an.A.p.id){
-      out.push("Out of everyone in this family, you are each other's closest match. Neither of you resembles anybody else here more.");
-    } else if (PA.furthest.id === an.B.p.id && PB.furthest.id === an.A.p.id){
-      out.push("You are each other's farthest point in this family — nobody stretches either of you more than the other does.");
-    } else if (PA.nearest.id === an.B.p.id && PB.furthest.id === an.A.p.id){
-      out.push("And one strange, true pair of facts: " + bN + " is the closest profile in this family to " + aN + " — while " + aN + " is the farthest in it from " + bN + ". Both at once. Nobody sits nearer to " + aN + "; nobody stretches " + bN + " further.");
-    } else if (PB.nearest.id === an.A.p.id && PA.furthest.id === an.B.p.id){
-      out.push("And one strange, true pair of facts: " + aN + " is the closest profile in this family to " + bN + " — while " + bN + " is the farthest in it from " + aN + ". Both at once. Nobody sits nearer to " + bN + "; nobody stretches " + aN + " further.");
+  return (an.topContinua || []).map(function(c){
+    const leftPerson = c.posA < c.posB ? A : B;
+    const rightPerson = leftPerson === A ? B : A;
+    function pole(s){
+      if(s === "The people in the room") return "the people in the room";
+      if(s === "The work") return "the work";
+      return s;
     }
-  }
-  if (pf.approx){
-    out.push("One caveat: at least one of these answer sheets was reconstructed from recorded scores, so treat the question-level counts as close estimates.");
-  }
-  return out;
-}
-
-function alikeParas(an, pf){
-  const A = an.A, B = an.B;
-  const out = [];
-  const sharedSide = [];
-  if (A.paceW.lean === B.paceW.lean && A.paceW.lean !== "mixed"){
-    sharedSide.push(A.paceW.lean === "fast" ? "you both run quick — plans feel live early" : "you both run unhurried — plans become real with time, not pressure");
-  }
-  if (A.priW.lean === B.priW.lean && A.priW.lean !== "mixed"){
-    if (A.priW.lean === "people"){
-      if (A.via === B.via){
-        sharedSide.push(A.via === "I" ? "you're both tuned to the people in the room, the energetic way — company and momentum" : "you're both tuned to the people in the room, the caretaking way — whether everyone is actually okay");
-      } else {
-        sharedSide.push("you're both tuned to the people in the room — one of you through energy, the other through care, which looks identical from a distance and isn't");
-      }
-    } else {
-      sharedSide.push("you're both tuned to the plan — whether the thing itself holds up");
+    if(c.gap < TINY_CONT){
+      return A.name + " and " + B.name + " sit close on " + pole(c.left) + " versus " + pole(c.right) + ".";
     }
-  }
-  if (sharedSide.length){
-    out.push("Start with the overlap: " + sharedSide.join(", and ") + ". Shared ground like that is why some evenings between you need no negotiation at all.");
-  }
-  const shared = ["D","I","S","C"].filter(d=>A.N[d] >= 36 && B.N[d] >= 36);
-  if (shared.length){
-    out.push("You also share real weight on " + shared.map(d=>d + " (" + A.name + " " + A.N[d] + ", " + B.name + " " + B.N[d] + ")").join(" and ") + " — " + shared.map(d=>LETTER_GLOSS[d]).join("; ") + ". Where you match, you'll also miss the same things; the corner neither of you covers is worth knowing about.");
-  } else {
-    out.push("You don't share a single letter at moderate strength or above — the overlap between you, where it exists, is temperament, not type. What you have in common you built, and that's sturdier than resemblance anyway.");
-  }
-  return out;
-}
-
-function scaleReads(an){
-  const A = an.A, B = an.B;
-  const gloss = {
-    pace: "when a decision starts feeling real",
-    priority: "what gets protected first",
-    frank: "how blunt the first draft of a sentence is",
-    outgoing: "how much of the thinking happens out loud",
-    daring: "the appetite for moving before everything is verified"
-  };
-  const bigClose = {
-    pace: "This is the headline gap of the pairing: align the clocks and most of the rest becomes footnotes.",
-    priority: "Same table, different cargo — worth saying out loud which one tonight is actually about.",
-    frank: "Translate accordingly: the bluntness isn't temper, and the softening isn't evasion. It's the same sentence, drafted twice.",
-    daring: "One of you calls it momentum and the other calls it gambling. It's both, which is why you need each other's vote.",
-    outgoing: "One of you drafts in public and one publishes only finished work. Neither is hiding anything."
-  };
-  return (an.continua || []).map(c=>{
-    const L = c.posA < c.posB ? A : B;
-    const R = L === A ? B : A;
-    const g = Math.round(c.gap);
-    if (c.gap < TINY_CONT){
-      return c.left + " vs " + c.right + ": nearly identical — on " + gloss[c.id] + ", you're the same person.";
+    if(c.gap < 22){
+      return leftPerson.name + " sits a bit toward " + pole(c.left) + ", " + rightPerson.name + " a bit toward " + pole(c.right) + ".";
     }
-    if (c.gap < 25){
-      return c.left + " vs " + c.right + ": a modest " + g + "-point gap. " + L.name + " a step toward " + c.left.toLowerCase() + ", " + R.name + " toward " + c.right.toLowerCase() + " — noticeable on " + gloss[c.id] + ", but the kind of gap one sentence fixes.";
-    }
-    return c.left + " vs " + c.right + ": " + g + " points, " + L.name + " well toward " + c.left.toLowerCase() + " and " + R.name + " well toward " + c.right.toLowerCase() + ". This gap decides " + gloss[c.id] + ". " + bigClose[c.id];
+    return leftPerson.name + " sits toward " + pole(c.left) + ", " + rightPerson.name + " toward " + pole(c.right) + ".";
   });
 }
 
-function pairLede(an){
+function copyDS(fast, slow){
+  return [
+    fast.name + " sits toward Driven, " + slow.name + " toward Patient. " + fast.name + " treats a decision as live once they can see it. " + slow.name + " treats it as live once the room has had a chance to be ok.",
+    "Directness is often speed. A pause is not a yes. If " + fast.name + " takes that as settled, the real answer can show up later."
+  ];
+}
+function copyIC(fastPeople, slowTask){
+  return [
+    fastPeople.name + " sits toward motion and the room, " + slowTask.name + " toward time to think and the check.",
+    "A fast yes is often an invitation, not proof the details work. A pause is often the check, not a cold shoulder."
+  ];
+}
+function copyIS(fast, slow){
+  return [
+    "Same people-first, different clock. Both often care that the humans are ok. They disagree about when a plan is real. " + fast.name + " has often already moved. " + slow.name + " often wants buy-in first.",
+    "That is already decided versus buy-in. You split the clock, not the care."
+  ];
+}
+function copyDC(fast, slow){
+  return [
+    "Same work-first, different clock. " + fast.name + " often locks a time and fixes it if wrong. " + slow.name + " often wants the look first: hours, drive, whether it works.",
+    "Locked time versus the still-researching tab."
+  ];
+}
+function copySC(taskP, peopleP){
+  return [
+    "Same patient pace, different priority. " + peopleP.name + " often watches whether everyone is ok. " + taskP.name + " often watches whether the plan holds.",
+    "Because neither rushes, this can look like peace. The rub is a delayed hard call versus a delayed yes until the details sit right."
+  ];
+}
+function copyDI(taskP, peopleP){
+  return [
+    "Same fast pace, different priority. " + taskP.name + " often closes a result. " + peopleP.name + " often keeps people in. Speed is shared. Who it serves is not.",
+    "You share Driven. You split the work versus the room."
+  ];
+}
+function copySIvsSC(siP, scP){
+  return [
+    "One leftover split among others: I versus C on a shared S. " + siP.name + " sits further toward a quicker yes once people feel in (I " + siP.N.I + " vs " + scP.N.I + "). " + scP.name + " sits further toward the check (C " + scP.N.C + " vs " + siP.N.C + ").",
+    siP.name + " leans buy-in, then a quicker yes once people feel in. " + scP.name + " leans buy-in plus a look. C can stretch the close."
+  ];
+}
+function copyDIvsSI(diP, siP){
+  return [
+    "The tax is the clock: D versus S. " + diP.name + " has often already picked (D " + diP.N.D + " vs " + siP.N.D + "). " + siP.name + " wants buy-in first (S " + siP.N.S + " vs " + diP.N.S + ").",
+    diP.name + " is I with D: people in, then a close. In a group " + diP.name + " can be shorter than the I suggests. " + siP.name + " is S with I: buy-in first, then a quicker yes once people feel in."
+  ];
+}
+function copyDIvsSC(diP, scP){
+  return [
+    diP.name + " leans motion and the room, then D closes. " + scP.name + " leans buy-in and the check. C can stretch the close.",
+    diP.name + " is further down the road. " + scP.name + " still wants a look. Leftover D and I versus leftover S and C."
+  ];
+}
+function copyDIvsDC(diP, dcP){
+  return [
+    "Shared D is a call. Leftover I versus C is people in versus the check.",
+    diP.name + " treats a first yes as live. " + dcP.name + " still wants the look."
+  ];
+}
+function copyDCvsSC(dcP, scP){
+  return [
+    "Shared C is the check. Leftover D versus S is already decided versus buy-in.",
+    dcP.name + " will lock a time and still want it correct. " + scP.name + " will not lock until people are ok and it checks out. Same standard, different clock."
+  ];
+}
+function copySameLetter(letter, A, B){
+  if(letter === "D"){
+    return "Two D leans in one house. The leftover rub is often who decides. Split the call before anyone grabs the wheel.";
+  }
+  if(letter === "I"){
+    return "Two I leans. People in is easy. Closing often is not. Decide who owns the follow-through before the good part of the night ends.";
+  }
+  if(letter === "S"){
+    return "Two S primaries. The house often stays smooth, and the real thing can retire unspoken. If leftover I versus leftover C is in the scores, read that split too.";
+  }
+  if(letter === "C"){
+    return "Two C leans. Both tend to be sure. Agree which decisions deserve the full check and which get a good-enough call by tonight.";
+  }
+  return "";
+}
+function similarParagraphs(an){
   const A = an.A, B = an.B;
-  const p1 = A.name + " runs " + A.paceW.phrase + " and " + A.priW.phrase + ". " + B.name + " runs " + B.paceW.phrase + " and " + B.priW.phrase + ".";
-  let which;
-  if (an.largerGap === "both") which = "The two gaps are about the same size — you'll feel them both.";
-  else if (an.largerGap === "pace") which = "The wider gap is pace: when a plan becomes real. Get the clocks aligned and most of the rest follows.";
-  else which = "The wider gap is priority: what each of you is protecting. Same speed, different cargo.";
-  return p1 + " " + which;
+  const kind = blendPairKind(A, B);
+  const out = [];
+  if(kind === "SI/SC"){
+    out.push(A.name + " and " + B.name + " share patience and buy-in. The leftover is I versus C, one split among others.");
+    return out;
+  }
+  if(kind === "DI/SI"){
+    out.push("Priority is shared: both tuned to the people in the room. The gap that remains is pace: when a plan counts as real.");
+    out.push("You share I (" + A.name + " " + A.N.I + ", " + B.name + " " + B.N.I + ").");
+    return out;
+  }
+  if(an.sameSide){
+    const priPole = A.priW.pole === B.priW.pole ? A.priW.pole : "mixed";
+    const priBit = priPole === "people" ? "the people in the room" : (priPole === "task" ? "the work" : "priority near even for one of you");
+    out.push(A.name + " and " + B.name + " sit on the same side of both sliders: " + A.paceW.word + " pace, " + priBit + ". The leftover is where you will still rub.");
+  }else if(an.samePace){
+    out.push("Pace is shared: both " + A.paceW.word + ". The gap that remains is priority.");
+  }else if(an.samePriority){
+    out.push("Priority is shared: both " + (A.priW.lean === "people" ? "tuned to the people in the room" : "tuned to the work") + ". The gap that remains is pace: when a plan counts as real.");
+  }else if(A.center || B.center){
+    const c = A.center ? A : B;
+    const o = c === A ? B : A;
+    out.push(c.name + " sits near the middle of both sliders. " + o.name + " will feel a small lean, not a wall.");
+  }else{
+    out.push("Where the dots sit close, that is shared. It is also where you will both miss the same thing.");
+  }
+  if(an.sameLetter){
+    const sl = copySameLetter(A.primary, A, B);
+    if(sl) out.push(sl);
+  }else{
+    const shared = sharedModLetters(an);
+    if(shared.length){
+      const named = shared.map(function(L){
+        return L + " (" + A.name + " " + A.N[L] + ", " + B.name + " " + B.N[L] + ")";
+      }).join("; ");
+      out.push("You share " + named + ".");
+    }
+  }
+  return out.slice(0, 2);
 }
 
-function pairTypeLabel(an, pf, F){
-  if (pf && F && F.nPairs >= 4){
-    if (F.closestPair && pf.l1 === F.closestPair.l1) return "The family's closest pairing";
-    if (F.widestPair && pf.l1 === F.widestPair.l1) return "The family's full wingspan";
+function blindSpot(an){
+  const A = an.A, B = an.B;
+  const bits = [];
+  const kind = blendPairKind(A, B);
+  if(kind === "SI/SC"){
+    bits.push("One of you hears extra rounds as stalling. The other hears a quick close as skipping the look. Name both jobs, then stop.");
+  }else if(an.sameSide && A.paceW.lean === "slow" && A.priW.lean === "task"){
+    bits.push("The people in the room, and speed. You can get the plan right and still leave someone unasked.");
+  }else if(an.sameSide && A.paceW.lean === "slow" && A.priW.lean === "people"){
+    bits.push("The hard call, and motion without a full vote. Protecting the room still needs someone to name the thing.");
+  }else if(an.sameSide && A.paceW.lean === "fast"){
+    bits.push("The brake. Nobody here is naturally the runway. Build one on purpose when slower people are in the house.");
+  }else if(an.samePace && A.paceW.lean === "slow"){
+    bits.push("Speed. Between you, plans get a runway. The house still has faster wiring in it.");
+  }else if(an.samePriority && A.priW.lean === "people"){
+    bits.push("Closing the work. Everyone being ok is not the same as a time, a place, and a yes.");
+  }else if(an.samePriority && A.priW.lean === "task"){
+    bits.push("Whether the people in the room are actually ok, not just whether the plan is correct.");
   }
-  if (an.pairingType === "both") return "Different speed, different cargo";
-  if (an.pairingType === "pace") return "Same priorities, different clocks";
-  if (an.pairingType === "priority") return "Same speed, different cargo";
-  if (an.pairingType === "center") return "Two flexible profiles";
-  if (an.paceGap >= 40) return "Same cargo, different clocks";
-  return "Same side of the map";
+  if(an.sameLetter && A.primary === "S" && kind !== "SI/SC"){
+    bits.push("The real thing can stay unspoken. Smooth is not the same as settled.");
+  }else if(an.sameLetter && A.primary === "C"){
+    bits.push("Two right answers, no close. Pick a time when good enough ships.");
+  }else if(an.sameLetter && A.primary === "I"){
+    bits.push("People in and no close. The plan still needs an owner.");
+  }else if(an.sameLetter && A.primary === "D"){
+    bits.push("Who decides. Two steering wheels. Name the owner before the outing.");
+  }
+  if(bits.length) return bits.join(" ");
+  if(an.pairingType === "both") return "You do not share a pole to hide in. The gift is range. The cost is translation.";
+  return "Where you match, you will both miss the same corner of the room. Ask the person who sits opposite you on the family map what you two are skipping.";
+}
+
+function rubParagraphs(an){
+  const A = an.A, B = an.B;
+  const out = [];
+  const kind = blendPairKind(A, B);
+  const siP = siSnap(an), scP = scSnap(an), diP = diSnap(an), dcP = dcSnap(an);
+
+  if(an.nearCenterA && an.nearCenterB){
+    out.push("The gaps are small. Forcing a big opposite-poles story would be inventing one. " + leftoverSentence(an));
+    return out.slice(0, 3);
+  }
+  if(an.nearCenterA || an.nearCenterB){
+    const c = an.nearCenterA ? A : B;
+    const o = c === A ? B : A;
+    out.push(c.name + " is near the center. " + o.name + " will feel some of their own wiring more sharply next to a flexible person. Name the small gaps. Do not cast " + c.name + " as a secret opposite.");
+    out.push(leftoverSentence(an));
+    return out.filter(Boolean).slice(0, 3);
+  }
+
+  if(kind === "SI/SC" && siP && scP){
+    copySIvsSC(siP, scP).forEach(function(s){ out.push(s); });
+  }else if(kind === "DI/SI" && diP && siP){
+    copyDIvsSI(diP, siP).forEach(function(s){ out.push(s); });
+  }else if(kind === "DI/SC" && diP && scP){
+    copyDIvsSC(diP, scP).forEach(function(s){ out.push(s); });
+  }else if(kind === "DI/DC" && diP && dcP){
+    copyDIvsDC(diP, dcP).forEach(function(s){ out.push(s); });
+  }else if(kind === "DC/SC" && dcP && scP){
+    copyDCvsSC(dcP, scP).forEach(function(s){ out.push(s); });
+  }else if(an.pairingType === "both" && an.classic === "D/S"){
+    const fast = A.pace > B.pace ? A : B;
+    copyDS(fast, fast === A ? B : A).forEach(function(s){ out.push(s); });
+  }else if(an.pairingType === "both" && an.classic === "I/C"){
+    const fast = A.pace > B.pace ? A : B;
+    copyIC(fast, fast === A ? B : A).forEach(function(s){ out.push(s); });
+  }else if(an.pairingType === "pace" && an.classic === "I/S"){
+    const fast = A.pace > B.pace ? A : B;
+    copyIS(fast, fast === A ? B : A).forEach(function(s){ out.push(s); });
+  }else if(an.pairingType === "pace" && an.classic === "D/C"){
+    const fast = A.pace > B.pace ? A : B;
+    copyDC(fast, fast === A ? B : A).forEach(function(s){ out.push(s); });
+  }else if(an.pairingType === "priority" && an.classic === "S/C"){
+    const taskP = A.pri > B.pri ? A : B;
+    copySC(taskP, taskP === A ? B : A).forEach(function(s){ out.push(s); });
+  }else if(an.pairingType === "priority" && an.classic === "D/I"){
+    const taskP = A.pri > B.pri ? A : B;
+    copyDI(taskP, taskP === A ? B : A).forEach(function(s){ out.push(s); });
+  }else if(an.pairingType === "same-side"){
+    out.push(leftoverSentence(an));
+    const moreD = an.diffs.find(function(d){ return d.d === "D"; });
+    const moreI = an.diffs.find(function(d){ return d.d === "I"; });
+    if(isSplusC(A) && isSplusC(B)){
+      let sc = "Two S+C stacks. Leftover D or I is the weather.";
+      if(moreD && moreD.abs >= 5) sc += " " + (moreD.diff > 0 ? A.name : B.name) + " carries a bit more D (" + (moreD.diff > 0 ? moreD.a : moreD.b) + " vs " + (moreD.diff > 0 ? moreD.b : moreD.a) + "), which is already decided.";
+      if(moreI && moreI.abs >= 5) sc += " " + (moreI.diff > 0 ? A.name : B.name) + " carries more I (" + (moreI.diff > 0 ? moreI.a : moreI.b) + " vs " + (moreI.diff > 0 ? moreI.b : moreI.a) + "), which is a quicker yes once people feel in.";
+      out.push(sc.trim());
+    }
+    if(an.largerGap === "pace"){
+      out.push("Even on the same side, pace is the wider gap. One of you is ready a little sooner.");
+    }else if(an.largerGap === "priority"){
+      out.push("Even on the same side, priority is the wider gap: the work versus the people.");
+    }
+  }else if(an.pairingType === "center"){
+    out.push("Small gaps. " + leftoverSentence(an));
+  }else if(an.dVsS){
+    const fast = A.pace > B.pace ? A : B;
+    copyDS(fast, fast === A ? B : A).forEach(function(s){ out.push(s); });
+  }else{
+    out.push(leftoverSentence(an));
+  }
+
+  return uniq(out.filter(Boolean)).slice(0, 3);
+}
+
+function brings(an){
+  function one(S){
+    const vis = S.vis || [];
+    const bits = vis.map(function(L){
+      if(L === "D") return "a call";
+      if(L === "I") return "people in, a quicker yes when aligned";
+      if(L === "S") return "buy-in, runway, an eye on who is ok";
+      if(L === "C") return "the check, standards, time to think";
+      return "";
+    }).filter(Boolean);
+    let s1 = S.name + " tends to bring " + (bits.join(", ") || "a mix of the four scores") + ".";
+    let s2 = "";
+    if(S.center) s2 = "Range is the extra: " + S.name + " can meet people in more than one mode.";
+    else if(isDplusI(S)) s2 = "Invitation plus a close.";
+    else if(isSplusI(S)) s2 = "Buy-in, then a quicker yes once people feel in.";
+    else if(isSplusC(S)) s2 = "Buy-in plus the check. C can stretch the close.";
+    else if(isDplusC(S)) s2 = "A call plus the check. Fast and right, in one person.";
+    else if(S.paceW.lean === "fast" && S.priW.lean === "people") s2 = "The room is invited in, then a close.";
+    else if(S.paceW.lean === "slow" && S.priW.lean === "people") s2 = "Patience here is often for the room. The close often waits until people are ok.";
+    else if(S.paceW.lean === "slow" && S.priW.lean === "task") s2 = "Patience here is often for the work. A yes often waits on the check.";
+    return (s1 + " " + s2).trim();
+  }
+  return {a: one(an.A), b: one(an.B)};
+}
+function pairWorking(an){
+  const A = an.A, B = an.B;
+  const kind = blendPairKind(A, B);
+  const fast = A.pace >= B.pace ? A : B;
+  const slow = fast === A ? B : A;
+  const taskP = A.pri >= B.pri ? A : B;
+  const peopleP = taskP === A ? B : A;
+  const siP = siSnap(an), scP = scSnap(an), diP = diSnap(an), dcP = dcSnap(an);
+  if(kind === "DI/SI" && diP && siP){
+    return [
+      A.name + " and " + B.name + " both care who is in the room. That is why this pairing works: the night is for people, not only for a correct plan. " + diP.name + " starts so there is something to join. " + siP.name + " holds so people can actually get in. Nights happen because one names a path and the other keeps the room.",
+      "Shared I is warmth on both sides (" + A.name + " " + A.N.I + ", " + B.name + " " + B.N.I + "). When it is working, the first plan is a starting point, the slower yes gets said the same day, and you use each other on purpose: motion from " + diP.name + ", runway from " + siP.name + ". The clock is the work. The care is shared."
+    ];
+  }
+  if(kind === "SI/SC" && siP && scP){
+    return [
+      A.name + " and " + B.name + " share patience and buy-in. Nights can be warm without anyone grabbing the wheel. " + siP.name + " brings a quicker yes once people feel in. " + scP.name + " brings a check. Together a plan can be kind and still hold.",
+      "When it works, " + siP.name + " names when the room is in, " + scP.name + " names whether the hours and the drive actually work, and you stop. Shared S is the gift. The leftover I versus C is weather, not a war. One look, then a close, is the pairing at its best."
+    ];
+  }
+  if(kind === "DI/SC" && diP && scP){
+    return [
+      "This pairing can make a night that both happens and holds. " + diP.name + " starts: a time, a place, people invited in. " + scP.name + " checks: hours, drive, whether it actually works. Complementary jobs. You do not both have to do the same one.",
+      "When it works, you lock after the look, not instead of it. " + diP.name + " keeps the path from dying. " + scP.name + " keeps the path from being a fantasy. Use both on purpose and the outing ships."
+    ];
+  }
+  if(kind === "DI/DC" && diP && dcP){
+    return [
+      "Shared close. This pairing can actually decide. " + diP.name + " keeps people in. " + dcP.name + " keeps the look. A night can start and still be correct.",
+      "When it works, a first yes from " + diP.name + " is a starting point, and " + dcP.name + " runs the check before it hardens. Shared D is motion. Leftover I versus C is which job this decision is."
+    ];
+  }
+  if(kind === "DC/SC" && dcP && scP){
+    return [
+      "Shared check. This pairing can make a plan that holds. " + dcP.name + " is further down the road. " + scP.name + " still wants buy-in. Same standard, complementary clocks.",
+      "When it works, " + dcP.name + " names a call and " + scP.name + " names who is not ok yet. You use both. The outing is right, and people can live with it."
+    ];
+  }
+  if(an.samePriority && A.priW.lean === "people"){
+    return [
+      A.name + " and " + B.name + " both tune to the people in the room. That is the shared gift: a night that forgets the humans is a miss for both of you. When it works, someone still has to start, and someone still has to close, but nobody gets treated as furniture.",
+      "Use the shared people-first on purpose. Then pick a clock. If one of you is faster, let them name a first time. If one of you holds, let them check who is actually in. Complementary jobs beat two polite maybes."
+    ];
+  }
+  if(an.samePriority && A.priW.lean === "task"){
+    return [
+      "You both care whether the plan holds. That is the shared gift: outings that work, reservations that seat, hours that make sense. When it is working, the night is solid.",
+      "Use each other on the look, then name when good enough ships. Shared work-first still needs a close, and still needs a who-is-ok pass borrowed from elsewhere in the house."
+    ];
+  }
+  if(an.samePace && A.paceW.lean === "slow"){
+    return [
+      "Pace is shared: both " + A.paceW.word + ". Nights can have a runway. Nobody here is trying to steamroll the morning. When it works, people can live with the day.",
+      "The leftover job still needs a name: people versus the work, or I versus C. Use the shared patience, then split the remaining job instead of both stalling for different reasons."
+    ];
+  }
+  if(an.samePace && A.paceW.lean === "fast"){
+    return [
+      "Pace is shared: both fast. Nights happen. Someone names a path and you move. That is the gift.",
+      "Build a runway on purpose when slower people are in the house. You two will not grow one by accident. Use the shared motion to start, then borrow a check."
+    ];
+  }
+  if(A.center || B.center){
+    const c = A.center ? A : B;
+    const o = c === A ? B : A;
+    return [
+      c.name + " can match " + o.name + " more than a typed opposite would. That is the gift of the middle: fewer walls, more nights that can be either a close or a hold.",
+      "When it works, " + o.name + " names the job this night needs, and " + c.name + " meets it. Range only shows up if someone asks which night this is."
+    ];
+  }
+  return [
+    A.name + " and " + B.name + " cover more than one job when you use both. A night can start and still have a runway, or a check, depending on who is in the pairing.",
+    "When it works, you name the complementary jobs out loud: who starts, who holds, who checks. Then you stop doing each other's work as a protest."
+  ];
+}
+
+function atHome(an){
+  const A = an.A, B = an.B;
+  const kind = blendPairKind(A, B);
+  const fast = A.pace >= B.pace ? A : B;
+  const slow = fast === A ? B : A;
+  const taskP = A.pri >= B.pri ? A : B;
+  const peopleP = taskP === A ? B : A;
+  const siP = siSnap(an), scP = scSnap(an), diP = diSnap(an), dcP = dcSnap(an);
+  const dH = whoHigher(an, "D"), iH = whoHigher(an, "I"), sH = whoHigher(an, "S"), cH = whoHigher(an, "C");
+
+  if(kind === "SI/SC" && siP && scP){
+    return [
+      "Dinner: both S. The table can be warm. This is why you like each other: nobody is rushing the meal into a vote. " + siP.name + " is often ready once people feel in. " + scP.name + " often wants one more look.",
+      "On a group text, " + siP.name + " may be ready after the room feels in. " + scP.name + " may still want a look before a yes lands in the thread. One check, then a close. A third message asking the same thing will chafe " + siP.name + ".",
+      "For a holiday, extra rounds can chafe " + siP.name + ". A fast close can land on " + scP.name + " as skipping the look. Publish after one look, not after a week of polite circling.",
+      "On a trip, " + scP.name + " checks hours, drive, whether it holds. " + siP.name + " checks who is ok. Use both jobs. That is the pairing working, not a fight.",
+      "A stuck moment: " + siP.name + " names when the room is in. " + scP.name + " names what still does not sit right. Then stop. Shared patience is the gift. Endless extra rounds are the tax."
+    ];
+  }
+  if(kind === "DI/SI" && diP && siP){
+    return [
+      "Dinner: " + siP.name + " may hold the table together. " + diP.name + " has often already picked. This is why you like each other some nights: one starts, one holds, the meal happens and people feel in.",
+      "On a group text, " + diP.name + " is often the first time on the thread. " + siP.name + " is often still checking who is ok before a yes. The invitation is real. The buy-in is also real. Treat the first time as a starting point.",
+      "For a holiday, " + diP.name + " will often name a day so it exists. " + siP.name + " wants the room in first. Do not ask " + diP.name + " for the itinerary. Publish a start, then check that " + siP.name + " is actually in.",
+      "On a trip or a drive, " + diP.name + " is often already going. A last-minute change is not a crisis for " + diP.name + ". " + siP.name + " may still be on who is ok. Do not ask " + diP.name + " to lock the route.",
+      "A stuck moment: " + diP.name + " can read a pause as settled. " + siP.name + " may still be checking who is ok. Same-day words. A walk beats a pile-on. The slower yes is not a no until it is said."
+    ];
+  }
+  if(kind === "DI/SC" && diP && scP){
+    return [
+      "Dinner: " + diP.name + " wants the room in and a path named. " + scP.name + " is checking whether this works. Different jobs at the same table. This is why you like each other when it works: the night starts, and the night holds.",
+      "On a group text, " + diP.name + " often sends a time. " + scP.name + " often still wants hours, drive, and a look. The first time is an invitation. The look is care. Do not treat either as a veto of the other.",
+      "For a holiday, " + diP.name + " will often name a day so it exists. " + scP.name + " has whether it seats. Ask " + scP.name + " what the plan is. Do not ask " + diP.name + ".",
+      "On a trip, leftover D and I want motion and people in. Leftover S and C want runway and a look. Write the departure, then let " + scP.name + " check it, then go.",
+      "A stuck moment: leftover D and I versus leftover S and C. Name which job this decision is. Then use both people, once."
+    ];
+  }
+  if(kind === "DI/DC" && diP && dcP){
+    return [
+      "Dinner: both already decided. " + diP.name + " keeping people in. " + dcP.name + " keeping the look. This is why you like each other: things close, and they are not sloppy.",
+      "On a group text, a first yes from " + diP.name + " versus a still-open check from " + dcP.name + ". Treat the yes as a starting point.",
+      "For a holiday, name which job this is: people in, or the look. Then do both, once.",
+      "On a trip, " + diP.name + " wants to go. " + dcP.name + " wants the routing to be right. Shared close, leftover I versus C.",
+      "A stuck moment: people in versus the look. Say which job this decision is, then stop arguing the other one."
+    ];
+  }
+  if(kind === "DC/SC" && dcP && scP){
+    return [
+      "Dinner: both want it right. " + dcP.name + " is further down the road. " + scP.name + " is still on buy-in. This is why you like each other: the standard is shared.",
+      "On a group text, locked time versus people plus a check. Same C, different clock. Send the details, then ask who is ok.",
+      "For a holiday, " + dcP.name + " will lock a time and still want it correct. " + scP.name + " will not lock until people are ok and it checks out.",
+      "On a trip, use both: a call from " + dcP.name + ", buy-in from " + scP.name + ". Same check, complementary clocks.",
+      "A stuck moment: " + dcP.name + " names a call. " + scP.name + " names who is not ok yet. Use both. Then ship."
+    ];
+  }
+  if(an.pairingType === "both" || (an.pairingType === "pace" && an.dVsS)){
+    return [
+      "Dinner: " + fast.name + " is already on the next subject while " + slow.name + " is still with the last one. When it works, that is range at one table: motion and a hold.",
+      "On a group text, " + fast.name + " often sends a time. " + slow.name + " often needs a slower yes. Treat the first time as a starting point.",
+      "For a holiday, " + fast.name + " often wants a call so people can book. " + slow.name + " often wants a slower yes so nobody is steamrolled. Publish, then check.",
+      "On a trip, " + fast.name + " is already routing. " + slow.name + " is still on buy-in or the look. A last-minute redo is expensive for " + fast.name + ". A skipped beat is expensive for " + slow.name + ".",
+      "A stuck moment: " + fast.name + " can treat a pause as settled. " + slow.name + " may still be checking the room. Same-day words. This is why you like each other when you wait: one starts, one keeps it livable."
+    ];
+  }
+  if(an.classic === "S/C" || (an.pairingType === "priority" && A.paceW.pole === "slow")){
+    return [
+      "Dinner can look calm. " + peopleP.name + " often watching faces. " + taskP.name + " often watching whether this plan holds. This is why you like each other: two jobs, no rush.",
+      "On a group text, two polite delays can look like agreement. Ask once for the plan, once for who is ok.",
+      "For a holiday you need both jobs: a correct plan and a check that people are actually ok. Not the same question. Write both down.",
+      "On a trip, " + taskP.name + " wants hours and drive. " + peopleP.name + " wants who is in. Use both before you leave.",
+      "A stuck moment: two polite delays. Name one preference out loud. Smooth is not the same as settled."
+    ];
+  }
+  if(an.sameSide && A.priW.lean === "people"){
+    const extra = (iH ? iH.more.name + "'s extra I (" + iH.moreN + " vs " + iH.lessN + ") is a quicker yes. " : "") +
+      (sH ? sH.more.name + "'s extra S is buy-in. " : "") +
+      (cH ? cH.more.name + "'s extra C is the check." : "");
+    return [
+      "Dinner looks easy until leftover letters show. " + extra.trim() + " This is why you like each other: the humans are the point.",
+      "On a group text, warmth can hide a missing vote. Ask twice, same day, without a pile-on.",
+      "For a holiday, someone has to raise the real preference or you will both be fine, and a little resentful.",
+      "On a trip, leftover clock or leftover check still matters. Name who starts and who holds.",
+      "A stuck moment: do not wait for a louder table. A walk or a same-day check is one way to get the real no."
+    ];
+  }
+  if(an.sameSide && A.priW.lean === "task"){
+    const extra = (dH ? dH.more.name + " carries a bit more D (" + dH.moreN + " vs " + dH.lessN + "), a lean toward naming a call. " : "") +
+      (cH ? cH.more.name + " carries more C (" + cH.moreN + " vs " + cH.lessN + "), toward another pass on the details." : "");
+    return [
+      "Home looks compatible on the surface. " + extra.trim() + " This is why you like each other: the plan can actually work.",
+      "On a group text, both want it right and neither rushes. The stall is two checks, not a pace war.",
+      "For a holiday, pick a time when good enough ships. Shared work-first will not grow a close by accident.",
+      "On a trip, hours and drive will get love. Ask who is not ok on purpose. That is the skip.",
+      "A stuck moment: the people in the room are what you two will skip. Ask who is not ok before you lock."
+    ];
+  }
+  if(an.sameSide){
+    return [
+      "Home looks compatible until a leftover letter shows. " + leftoverSentence(an) + " Shared ground is also why you like each other.",
+      "On a group text, leftover clock or leftover check still peeks through. Name it.",
+      "For a holiday: who closes, who needs runway, who needs the check.",
+      "On a trip, write the plan, then ask the leftover question once.",
+      "A stuck moment: if nobody raises the real preference, you get a fine evening and a private list."
+    ];
+  }
+  return [
+    "Dinner: watch leftover letters. " + leftoverLines(an, 8).slice(0, 2).join(". ") + ".",
+    "On a group text, who has already named a time, who needs buy-in, who needs the look.",
+    "For a holiday, publish after both jobs have had one pass.",
+    "On a trip, leftover clusters show up as routing versus runway.",
+    "A stuck moment: name the leftover cluster, then stop. This pairing works when you use both jobs, not when you argue which job is the real one."
+  ];
+}
+
+
+function talkDecideTime(an){
+  const A = an.A, B = an.B;
+  const kind = blendPairKind(A, B);
+  const fast = A.pace >= B.pace ? A : B;
+  const slow = fast === A ? B : A;
+  const taskP = A.pri >= B.pri ? A : B;
+  const peopleP = taskP === A ? B : A;
+  const siP = siSnap(an), scP = scSnap(an), diP = diSnap(an);
+  const dH = whoHigher(an, "D"), iH = whoHigher(an, "I"), sH = whoHigher(an, "S"), cH = whoHigher(an, "C");
+  let talk = [], decide = [], time = [];
+
+  if(kind === "SI/SC" && siP && scP){
+    talk = [
+      "Shared S: give a runway when you can. Buy-in first.",
+      siP.name + ": once people feel in, a quicker yes is fair. Another round may chafe.",
+      scP.name + ": name what still does not check out. One more look is real. A third round may be stalling."
+    ];
+    decide = [
+      "Split the jobs. " + siP.name + " names when the room is in. " + scP.name + " names whether it works.",
+      "Do not use extra rounds as the only method. That can chafe S with I.",
+      "Do not skip the look when the call has to hold."
+    ];
+    time = [
+      "A who-is-ok pass, then a close. Then stop.",
+      "Details on paper for " + scP.name + " when it has to be right.",
+      "When stuck, one more vote or a check of the plan, not both forever.",
+      "Use " + siP.name + " to read who is in. Use " + scP.name + " for the look. Then stop re-asking."
+    ];
+    talk.push("Shared patience is the gift. Spend it on a runway, not on a third round of the same question.");
+    decide.push("Name when good enough ships so the check has an end.");
+  }else if(kind === "DI/SI" && diP && siP){
+    talk = [
+      diP.name + ": say the plan in one sentence, then ask what " + siP.name + " needs to be ok. Wait past the first pause.",
+      siP.name + ": say the small no while it is still small, the same day, when you can.",
+      "A pause is not a yes."
+    ];
+    decide = [
+      "Name whether this is buy-in or already decided.",
+      "If people have to live with it, " + siP.name + " often needs a slower yes, then a quicker yes once in.",
+      "If it is tonight and it can be wrong, let " + diP.name + " pick and move."
+    ];
+    time = [
+      "A holiday often needs a published time from " + diP.name + " plus a check that " + siP.name + " is actually in.",
+      "Dinner can be " + siP.name + "'s room.",
+      "When stuck, a walk the same day beats a pile-on.",
+      "Use " + diP.name + " to start the night. Use " + siP.name + " to hold it. Trade whose clock the next one is."
+    ];
+    talk.push("Going first is often invitation. A pause is buy-in. Do not mix those up in the same sentence.");
+    decide.push("Treat " + diP.name + "'s first plan as a starting point, not the whole house being in.");
+  }else if(kind === "DI/SC" && diP && scP){
+    talk = [
+      diP.name + ": lead with the invite and the path. Then send the details " + scP.name + " needs.",
+      scP.name + ": name what still does not check out. A pause is often the check, not a freeze-out.",
+      "Do not treat energy as a close, or the check as a no."
+    ];
+    decide = [
+      "Lock after the check when the call has to hold, not instead of it.",
+      diP.name + " names a first yes. " + scP.name + " names the look.",
+      "Good enough by this afternoon is a real standard."
+    ];
+    time = [
+      "Give " + scP.name + " a details hour before the plan goes live, when it has to be right.",
+      "Let " + diP.name + " name a first yes, then let " + scP.name + " run the check.",
+      "Not every night is a research tab, and not every night is a locked time. Trade.",
+      "Use " + diP.name + " to start. Use " + scP.name + " to make it hold."
+    ];
+    decide.push("If it can be wrong tonight, let " + diP.name + " pick after one look, not after five.");
+  }else if(an.dVsS || an.pairingType === "both"){
+    talk = [
+      fast.name + " often leads with the point. That is speed, not a verdict on " + slow.name + ".",
+      slow.name + " often needs a beat. Do not close in a pile-on. Thirty seconds of quiet is not a stall.",
+      "Ask one question you actually want the answer to. " + slow.name + ": say the small no while it is still small, the same day, when you can."
+    ];
+    decide = [
+      "Name whether this is a buy-in decision or an already decided one.",
+      "If people have to live with it, " + slow.name + " often needs a slower yes.",
+      "If it is tonight and it can be wrong, let " + fast.name + " pick and move."
+    ];
+    time = [
+      "Mix the clocks. One night " + fast.name + " sets the pace. Next night " + slow.name + " gets the runway.",
+      "Holidays often need a published plan and a private check.",
+      "Do not make every night a town hall. Do not make every night a closed call either."
+    ];
+  }else if(an.classic === "S/C"){
+    talk = [
+      "Keep hard calls without an audience when you can. Both of you often hear better that way.",
+      peopleP.name + " often needs a check-in that is actually about who is ok.",
+      taskP.name + " often needs the details in a form they can look at twice. Calm is not agreement."
+    ];
+    decide = [
+      "Split the job. " + taskP.name + " checks whether it works. " + peopleP.name + " checks who is left out.",
+      "Both have to say yes, or the quiet no can arrive after the reservation.",
+      "Pick a time when good enough ships."
+    ];
+    time = [
+      "A correct-plan hour for " + taskP.name + ". A who-is-ok check for " + peopleP.name + ".",
+      "Do not make every night a town hall. Do not make every night a closed spec either.",
+      "Holidays need both jobs written down."
+    ];
+  }else if(an.classic === "I/S"){
+    talk = [
+      fast.name + " has often already moved. " + slow.name + " is still on buy-in. Match that on purpose.",
+      "Warm up, then ask, then wait. Do not treat a pause as a stall, and do not sit on a live path until it goes cold.",
+      "A 1:1 is one tool for " + slow.name + "."
+    ];
+    decide = [
+      "Name whether this is buy-in or already decided.",
+      "If people have to live with it, " + slow.name + " often needs a slower yes.",
+      "If it can be wrong tonight, let " + fast.name + " pick and move."
+    ];
+    time = [
+      "Trade who the night is for: the room, or a close.",
+      "A walk for the stuck no.",
+      "Holidays get a written time plus a check that nobody got run over."
+    ];
+  }else if(an.sameSide && A.priW.lean === "people"){
+    talk = [
+      iH ? ("The extra I in " + iH.more.name + " (" + iH.moreN + " vs " + iH.lessN + ") is a quicker yes once people feel in.") : ("Ask " + A.name + " and " + B.name + " for the real preference, not the warm default."),
+      sH ? ("The extra S in " + sH.more.name + " (" + sH.moreN + " vs " + sH.lessN + ") is buy-in.") : "Buy-in is shared. A warm table is not a vote.",
+      "Ask twice, same day, without a pile-on."
+    ];
+    decide = [
+      "One of you has to raise the real preference. Take turns being that person.",
+      "A coin flip is kinder than two polite maybes.",
+      cH ? (cH.more.name + " still often needs a look before a yes.") : "Close once the room is ok, when you can."
+    ];
+    time = [
+      "Host a night that is slightly harder than your default.",
+      "The real preference may wait unless someone asks twice.",
+      "Invite one person who sits elsewhere on the family map when you need range."
+    ];
+  }else if(an.sameSide && A.priW.lean === "task"){
+    talk = [
+      "You two will default to the plan. Name the people in the room on purpose.",
+      "Put one preference in words even if it is small. A pause is not a vote.",
+      dH ? (dH.more.name + "'s extra D can name the call. Name it, then wait for the real yes.") : "Someone has to close."
+    ];
+    decide = [
+      "Pick a time when the check is done.",
+      "Good enough by this afternoon is a real standard.",
+      "Ask who is not ok before you lock."
+    ];
+    time = [
+      "Your default night will feel easy. Schedule one night that is only good enough, on purpose.",
+      "Take turns being the person who names a call.",
+      "Invite someone who sits elsewhere on the family map when you need range."
+    ];
+  }else if(A.center || B.center){
+    talk = [
+      "Do not assume a default opening. Ask which mode this conversation needs.",
+      "Then one of you speak the ask, and the other wait.",
+      "Range is the gift. Guessing is the tax."
+    ];
+    decide = [
+      "Say who owns this one.",
+      "One person picks. The other can veto once, with a reason. Then go.",
+      "Do not invent a type from a small leftover."
+    ];
+    time = [
+      "Ask which format this night needs.",
+      "Do not copy last holiday.",
+      "Range is the gift. Use it."
+    ];
+  }else{
+    talk = [
+      "Use the scales. Tactful versus Frank: soften the first sentence and keep the point.",
+      "Outgoing versus Private: skip the pile-on for anything that matters.",
+      "A pause is not a yes. People in is not a close."
+    ];
+    decide = [
+      "Say who owns this one. One person picks. The other can veto once, with a reason. Then go.",
+      leftoverLines(an, 8)[0] || "Name the leftover letter in the room.",
+      "Do not use one rule for a buy-in call and a tonight-can-be-wrong call."
+    ];
+    time = [
+      "Trade who picks. One night " + A.name + " chooses the place and the pace. Next night " + B.name + " does.",
+      "Holidays get a written time plus a check for anyone who went quiet.",
+      "Mix faces and the look."
+    ];
+  }
+  while(talk.length < 4) talk.push("Ask one question you actually want the answer to, then wait.");
+  while(decide.length < 4) decide.push("Say who owns this one, then go.");
+  while(time.length < 4) time.push("Trade who picks the format.");
+  return {talk: talk.slice(0, 4), decide: decide.slice(0, 4), time: time.slice(0, 4)};
+}
+function tips(an){
+  const A = an.A, B = an.B;
+  const kind = blendPairKind(A, B);
+  const fast = A.pace >= B.pace ? A : B;
+  const slow = fast === A ? B : A;
+  const taskP = A.pri >= B.pri ? A : B;
+  const peopleP = taskP === A ? B : A;
+  const siP = siSnap(an), scP = scSnap(an);
+
+  function to(from, toward){
+    if(kind === "SI/SC" && siP && scP){
+      if(from === siP){
+        return "Once people feel in, say you are ready. " + toward.name + " often still wants a look. Give one more check, not a third round.";
+      }
+      return "Name what still does not sit right, then stop. " + toward.name + " can hear another vote as stalling. One look is care. Endless extra rounds are the tax.";
+    }
+    if(kind === "DI/SI" && from.dSide && isSplusI(toward)){
+      return "Wait for the slower yes before you treat the plan as closed. Ask " + toward.name + " the same day, not in a pile-on.";
+    }
+    if(kind === "DI/SI" && isSplusI(from) && toward.dSide){
+      return "Say the true sentence while it is still small. " + toward.name + " can take a no. " + toward.name + " cannot use a no you only thought.";
+    }
+    if(an.diVsSi && from.dSide && toward.si){
+      return "Wait for the slower yes before you treat the plan as closed.";
+    }
+    if(an.diVsSi && toward.dSide && from.si){
+      return "Say the true sentence while it is still small. " + toward.name + " can take a no. " + toward.name + " cannot use a no you only thought.";
+    }
+    if(an.dVsS && from === fast){
+      return "Say the plan in one sentence, then ask what " + toward.name + " needs in order to be ok with it. Wait. Do not fill the pause with a second plan.";
+    }
+    if(an.dVsS && from === slow){
+      return "Give the no (or the real yes) the same day. Quiet is not a message " + toward.name + " can read.";
+    }
+    if(an.classic === "S/C" && from === peopleP){
+      return "Name one preference about the plan itself, not only about who might be upset. " + toward.name + " is trying to get it right, and needs your actual vote.";
+    }
+    if(an.classic === "S/C" && from === taskP){
+      return "Ask who is not ok, before you lock the details. Correct and lonely is still a miss.";
+    }
+    if(an.classic === "I/S" && from === fast){
+      return "Invite, then wait. Buy-in is often slower than your close. A same-day check after the group thread is one method.";
+    }
+    if(an.classic === "I/S" && from === slow){
+      return "A late yes is fine. A silent maybe is not. " + toward.name + " already moved because that is how they often care. Catch them up with words.";
+    }
+    if(from.center){
+      return "Tell " + toward.name + " which mode you are in tonight, matching or steering, so they are not guessing.";
+    }
+    if(toward.center){
+      return "Ask " + toward.name + " what they actually think, then wait. The mix means the first shrug might not be the answer.";
+    }
+    const d0 = an.diffs[0];
+    if(d0 && d0.abs >= 5){
+      const more = d0.diff > 0 ? A : B;
+      if(from === more){
+        return "Your extra " + d0.d + " (" + (d0.diff > 0 ? d0.a : d0.b) + " vs " + (d0.diff > 0 ? d0.b : d0.a) + ") is " + clusterPhrase(d0.d, true) + ". Use it on purpose, then stop pushing " + toward.name + ".";
+      }
+      return "Say your preference in a full sentence. " + toward.name + "'s extra " + d0.d + " will close this if you do not name one.";
+    }
+    return "Read " + toward.name + "'s four scores, not the badge. Pace first, then priority, then leftover.";
+  }
+  return {ab: to(A, B), ba: to(B, A)};
+}
+
+function namedMoves(an){
+  const A = an.A, B = an.B;
+  const kind = blendPairKind(A, B);
+  const siP = siSnap(an), scP = scSnap(an), diP = diSnap(an);
+  function two(from, toward){
+    const moves = [];
+    if(isDplusI(from)){
+      moves.push("Use your gift: start the night. Name a time and a place so " + toward.name + " has something to join.");
+    }
+    if(isSplusI(from)){
+      moves.push("Use your gift: hold the room. After a path is named, say who is ok and who is not.");
+    }
+    if(isSplusC(from) && from.priW.pole === "people"){
+      moves.push("Use your gift: do not close until people have had a say. Ask " + toward.name + " to wait for those voices.");
+    }else if(isSplusC(from) || isDplusC(from)){
+      moves.push("Use your gift: run the check. Hours, drive, whether it holds. Send " + toward.name + " what you find, then stop.");
+    }
+    if(from.center){
+      moves.push("Use your range. Tell " + toward.name + " which mode you are in tonight, matching or steering, so they are not guessing.");
+    }
+    if(isDplusI(toward) && moves.length < 3){
+      moves.push("Use " + toward.name + " to start the night. A first time is often care. Then say your slower yes the same day.");
+    }
+    if(isSplusI(toward) && moves.length < 3){
+      moves.push("Use " + toward.name + " to hold the room. Ask who is ok after you name a path.");
+    }
+    if(isSplusC(toward) && toward.priW.pole !== "people" && moves.length < 3){
+      moves.push("Use " + toward.name + " for the look when the call has to hold. Send details. Wait for one check.");
+    }
+    if(from.paceW.lean === "fast" && toward.paceW.lean === "slow"){
+      moves.push("After you name a path, ask what " + toward.name + " needs in order to be ok. Wait past the first pause.");
+    }
+    if(from.paceW.lean === "slow" && toward.paceW.lean === "fast"){
+      moves.push("Give " + toward.name + " a yes or a no the same day. " + toward.name + " already moved because that is often care, not a steamroll by default.");
+    }
+    if(kind === "SI/SC" && siP && scP && from === siP){
+      moves.push("Once the room feels in, say you are ready. Give " + toward.name + " one look, not a new poll.");
+    }
+    if(kind === "SI/SC" && siP && scP && from === scP){
+      moves.push("Name the one thing that still does not check out, then stop extra rounds. " + toward.name + " may already be done asking.");
+    }
+    if(isDplusI(from)){
+      moves.push("After the close, look back at whether " + toward.name + " is actually in.");
+    }
+    if(from.priW.lean === "people" && toward.priW.lean === "task"){
+      moves.push("Name one thing about the plan itself, not only about who might be upset.");
+    }
+    if(from.priW.lean === "task" && toward.priW.lean === "people"){
+      moves.push("Ask who is not ok before you lock the details. Correct and lonely is still a miss.");
+    }
+    an.diffs.filter(function(d){ return d.abs >= 8; }).forEach(function(d){
+      const more = d.diff > 0 ? an.A : an.B;
+      if(more === from && moves.length < 3){
+        moves.push("Your extra " + d.d + " (" + (d.diff > 0 ? d.a : d.b) + ") is " + clusterPhrase(d.d, true) + ". Spend it on " + toward.name + ", then leave room.");
+      }
+    });
+    if(moves.length < 3) moves.push("Ask " + toward.name + " one question you actually want the answer to, then wait.");
+    if(moves.length < 3) moves.push("Name your preference in a full sentence.");
+    if(moves.length < 3) moves.push("Use the shared ground, then stop pushing the leftover.");
+    return uniq(moves).slice(0, 3);
+  }
+  return {a: two(A, B), b: two(B, A)};
+}
+
+function gapSentence(an){
+  const A = an.A, B = an.B;
+  const p1 = sliderLine(A);
+  const p2 = sliderLine(B);
+  let which;
+  if(an.largerGap === "both"){
+    which = "The two gaps are about the same size. You will feel both.";
+  }else if(an.largerGap === "pace"){
+    which = "The bigger gap is pace. Clock first, then what the clock is for.";
+  }else{
+    which = "The bigger gap is priority. What the night is for, more than how fast it moves.";
+  }
+  return p1 + " " + p2 + " " + which;
 }
 
 function pairCopy(a, b){
   const an = pairAnalysis(a, b);
-  const F = (typeof FACTS !== "undefined") ? FACTS : null;
-  const pf = F ? F.pairs[F.pairKey(a.id, b.id)] : null;
-
-  const key = [a.id, b.id].sort().join("|");
-  const bespoke = PAIR_READS[key] || genericPairRead(an);
-  /* bespoke text is written with A = first id alphabetically; flip if needed */
-  const flipped = a.id !== [a.id, b.id].sort()[0];
-  const mA = flipped ? bespoke.misreadB : bespoke.misreadA;
-  const mB = flipped ? bespoke.misreadA : bespoke.misreadB;
-  const gA = flipped ? bespoke.giveB : bespoke.giveA;
-  const gB = flipped ? bespoke.giveA : bespoke.giveB;
-  const vA = flipped ? bespoke.moveB : bespoke.moveA;
-  const vB = flipped ? bespoke.moveA : bespoke.moveB;
-
+  const kind = blendPairKind(an.A, an.B);
+  an.blendKind = kind;
+  const similar = similarParagraphs(an);
+  const working = pairWorking(an);
+  const rubs = rubParagraphs(an);
+  const br = brings(an);
+  const home = atHome(an);
+  const tdt = talkDecideTime(an);
+  const tp = tips(an);
+  const mv = namedMoves(an);
+  let typeLabel;
+  if(kind === "SI/SC") typeLabel = "Same patience, leftover I versus C.";
+  else if(kind === "DI/SI") typeLabel = "Same people-first, different clock.";
+  else if(kind === "DI/SC") typeLabel = "Already decided versus buy-in plus a check.";
+  else if(kind === "DI/DC") typeLabel = "Shared close. Leftover I versus C.";
+  else if(kind === "DC/SC") typeLabel = "Shared check. Leftover D versus S.";
+  else if(an.pairingType === "both") typeLabel = "Different clock, different job.";
+  else if(an.pairingType === "pace" && an.classic === "I/S") typeLabel = "Same people-first, different clock.";
+  else if(an.pairingType === "pace") typeLabel = "Same-ish priority, different clock.";
+  else if(an.pairingType === "priority") typeLabel = "Same-ish pace, different priority.";
+  else if(an.pairingType === "same-side") typeLabel = "Same side of both sliders. The leftover still counts.";
+  else typeLabel = "One person sits near the middle. Name the leftover without inventing a type.";
   return {
     analysis: an,
-    typeLabel: pairTypeLabel(an, pf, F),
-    lede: pairLede(an),
-    geometry: pairGeometry(an, pf, F),
-    read: bespoke.read,
-    generated: !!bespoke.generated,
-    receipts: pairReceipts(an, pf, F),
-    strip: pf ? pf.strip : null,
-    alike: alikeParas(an, pf),
-    misreadA: mA, misreadB: mB,
-    giveA: gA, giveB: gB,
-    moveA: vA, moveB: vB,
-    scaleReads: scaleReads(an)
+    lede: gapSentence(an),
+    typeLabel: typeLabel,
+    scaleReads: continuaReads(an),
+    similar: similar,
+    similarBlind: blindSpot(an),
+    working: working,
+    rubs: rubs,
+    bringsA: br.a,
+    bringsB: br.b,
+    atHome: home,
+    talk: tdt.talk,
+    decide: tdt.decide,
+    spendTime: tdt.time,
+    tipAB: tp.ab,
+    tipBA: tp.ba,
+    pointersA: mv.a,
+    pointersB: mv.b,
+    predictions: [],
+    caveat: PAIR_CAVEAT
   };
 }
-
-/* ============================ family page ============================= */
 
 function familyClusters(people){
   const snaps = people.map(personSnapshot);
-  return {
-    snaps,
-    fast: snaps.filter(s=>s.pace > EVEN_BAND),
-    slow: snaps.filter(s=>s.pace < -EVEN_BAND),
-    slowTask: snaps.filter(s=>s.pace < -EVEN_BAND && s.priW.lean === "task"),
-    slowPeople: snaps.filter(s=>s.pace < -EVEN_BAND && s.priW.lean === "people"),
-    center: snaps.filter(s=>s.center)
-  };
+  const fast = snaps.filter(s=>s.pace > EVEN_BAND);
+  const slow = snaps.filter(s=>s.pace < -EVEN_BAND);
+  const center = snaps.filter(s=>s.center);
+  const slowTask = snaps.filter(s=>s.pace < -EVEN_BAND && s.pri >= 8 && !s.center);
+  const slowPeople = snaps.filter(s=>s.pace < -EVEN_BAND && s.pri < 0 && !s.center);
+  const slowEven = snaps.filter(s=>s.pace < -EVEN_BAND && s.pri >= 0 && s.pri < 8 && !s.center);
+  return {snaps, fast, slow, slowTask, slowPeople, slowEven, center};
 }
 
-function houseFacts(){
-  const F = (typeof FACTS !== "undefined") ? FACTS : null;
-  if (!F) return [];
-  const out = [];
-  const n = F.familySize;
-
-  const leads = ["D","I","S","C"].map(d=>({d, names:F.leadCounts[d]}))
-    .sort((a,b)=>b.names.length-a.names.length);
-  const lead0 = leads[0];
-  if (lead0.names.length >= Math.ceil(n/2) && n >= 4){
-    out.push(LETTER_WORD[lead0.d].charAt(0).toUpperCase() + LETTER_WORD[lead0.d].slice(1) + " is the house letter: " + lead0.names.length + " of the " + n + " people here lead with " + lead0.d + " (" + lead0.names.join(", ") + ").");
-  }
-  const zeroLeads = leads.filter(l=>l.names.length===0);
-  if (zeroLeads.length){
-    out.push("Nobody in this family leads with " + zeroLeads.map(l=>l.d).join(" or ") + ". " + (zeroLeads.some(l=>l.d==="D") ? "Plenty of people here can push — nobody's wired to push first." : ""));
-  }
-  out.push("The family's average profile is D " + F.avg.D + ", I " + F.avg.I + ", S " + F.avg.S + ", C " + F.avg.C + " — a steady, careful house by temperament, whatever any given evening looks like.");
-
-  if (F.topTies.length >= 2){
-    const t = F.topTies;
-    const sameDir = t.every(c=>c.d===t[0].d);
-    if (!sameDir){
-      let s = "The " + (t.length===2?"two":String(t.length)) + " highest scores on the whole board are " + (t.length===2?"both":"all") + " " + t[0].n + "s: " + t.map(c=>c.name + "'s " + c.d).join(" and ") + " — twin peaks pointing in different directions.";
-      if (F.widestPair && t.length === 2){
-        const ids = [t[0].id, t[1].id].sort().join("|");
-        const wid = [F.widestPair.aId, F.widestPair.bId].sort().join("|");
-        if (ids === wid) s += " They belong to the two people farthest apart here, which is not a coincidence.";
-      }
-      out.push(s);
-    }
-  } else if (F.topCell){
-    out.push("The single highest score on the board is " + F.topCell.name + "'s " + F.topCell.d + " at " + F.topCell.n + ".");
-  }
-  if (F.closestPair && F.widestPair && F.nPairs >= 4){
-    out.push("Closest pair: " + F.closestPair.aName + " and " + F.closestPair.bName + ", " + F.closestPair.l1 + " points apart. Widest: " + F.widestPair.aName + " and " + F.widestPair.bName + ", at " + F.widestPair.l1 + ". Family average between any two people: " + F.avgL1 + ".");
-  }
-  if (F.mostMatched && F.nPairs >= 4){
-    out.push("Most in-sync answer sheets: " + F.mostMatched.aName + " and " + F.mostMatched.bName + " picked the same “most me” answer on " + F.mostMatched.sameMost + " of 28 questions." +
-      (F.mostInverted ? " Most inverted: " + F.mostInverted.aName + " and " + F.mostInverted.bName + " — on " + F.mostInverted.clash + " questions, one claimed what the other rejected." : ""));
-  }
-  if (F.unanimity.length){
-    const u = F.unanimity[0];
-    out.push("The closest this family comes to unanimity: on one question, " + u.count + " of " + u.of + " people picked the same answer — the " + LETTER_WORD[u.letter] + " option" + (u.dissenters.length ? " (everyone but " + u.dissenters.join(" and ") + ")" : "") + ".");
-  }
-  return out;
-}
-
-/* ============================== exports =============================== */
-
-if (typeof window !== "undefined"){
+if(typeof window !== "undefined"){
   window.EVEN_BAND = EVEN_BAND;
-  window.TINY_CONT = TINY_CONT;
   window.netsOf = netsOf;
   window.paceWords = paceWords;
   window.priWords = priWords;
@@ -1606,13 +1713,10 @@ if (typeof window !== "undefined"){
   window.personHome = personHome;
   window.personSnapshot = personSnapshot;
   window.familyClusters = familyClusters;
-  window.houseFacts = houseFacts;
   window.firstName = firstName;
   window.CONTINUA_META = CONTINUA_META;
   window.clamp100 = clamp100;
-  window.PERSON_READS = PERSON_READS;
-  window.PAIR_READS = PAIR_READS;
 }
-if (typeof module !== "undefined" && module.exports){
-  module.exports = {pairAnalysis, pairCopy, personHome, personSnapshot, familyClusters, houseFacts, netsOf, paceWords, priWords, firstName, EVEN_BAND, PERSON_READS, PAIR_READS};
+if(typeof module !== "undefined" && module.exports){
+  module.exports = {pairAnalysis, pairCopy, personHome, personSnapshot, familyClusters, netsOf, paceWords, priWords, firstName, EVEN_BAND};
 }
