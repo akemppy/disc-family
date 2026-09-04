@@ -440,37 +440,85 @@ function listBlock(items){
 }
 function paras(arr){return (arr||[]).filter(Boolean).map(t=>`<p>${esc(t)}</p>`).join("")}
 
+function personFamilyBits(p){
+  const F = (typeof FACTS !== "undefined") ? FACTS : null;
+  if(!F || !F.persons[p.id]) return {ranksRow:[], facts:[]};
+  const me = F.persons[p.id];
+  const ranksRow = ["D","I","S","C"].map(d=>({
+    d, n: me.N[d],
+    pos: me["rank"+d].pos, of: me["rank"+d].of, tied: me["rank"+d].tied
+  }));
+  const facts = [];
+  if(me.nearest && me.furthest){
+    facts.push("Closest profile to yours: "+me.nearest.name+", "+me.nearest.l1+" points away across the four scores. Farthest: "+me.furthest.name+", at "+me.furthest.l1+". The average distance between two people in this family is "+F.avgL1+".");
+  }
+  ranksRow.forEach(r=>{
+    if(r.pos===1 && !r.tied && r.n>=50) facts.push("Your "+r.d+" is the highest in the family.");
+  });
+  return {ranksRow, facts};
+}
+
+function houseFacts(){
+  const F = (typeof FACTS !== "undefined") ? FACTS : null;
+  if(!F) return [];
+  const out = [], n = F.familySize;
+  const WORD = {D:"dominance",I:"influence",S:"steadiness",C:"conscientiousness"};
+  const leads = ["D","I","S","C"].map(d=>({d, names:F.leadCounts[d]})).sort((a,b)=>b.names.length-a.names.length);
+  const lead0 = leads[0];
+  if(lead0 && lead0.names.length >= Math.ceil(n/2) && n >= 4){
+    out.push(WORD[lead0.d].charAt(0).toUpperCase()+WORD[lead0.d].slice(1)+" is the house letter: "+lead0.names.length+" of the "+n+" people here lead with "+lead0.d+" ("+lead0.names.join(", ")+").");
+  }
+  const zeroLeads = leads.filter(l=>l.names.length===0);
+  if(zeroLeads.length){
+    out.push("Nobody in this family leads with "+zeroLeads.map(l=>l.d).join(" or ")+"."+(zeroLeads.some(l=>l.d==="D")?" Plenty of people here can push — nobody's wired to push first.":""));
+  }
+  out.push("The family's average profile is D "+F.avg.D+", I "+F.avg.I+", S "+F.avg.S+", C "+F.avg.C+".");
+  if(F.closestPair && F.widestPair && F.nPairs >= 4){
+    out.push("Closest pair: "+F.closestPair.aName+" and "+F.closestPair.bName+", "+F.closestPair.l1+" points apart. Widest: "+F.widestPair.aName+" and "+F.widestPair.bName+", at "+F.widestPair.l1+". Family average between any two people: "+F.avgL1+".");
+  }
+  if(F.mostMatched && F.nPairs >= 4){
+    out.push("Most in-sync answer sheets: "+F.mostMatched.aName+" and "+F.mostMatched.bName+" picked the same “most me” answer on "+F.mostMatched.sameMost+" of 28 questions."+(F.mostInverted?" Most inverted: "+F.mostInverted.aName+" and "+F.mostInverted.bName+" — on "+F.mostInverted.clash+" questions, one claimed what the other rejected.":""));
+  }
+  if(F.unanimity && F.unanimity.length){
+    const u = F.unanimity[0];
+    out.push("The closest this family comes to unanimity: on one question, "+u.count+" of "+u.of+" people picked the same answer — the "+WORD[u.letter]+" option"+(u.dissenters.length?" (everyone but "+u.dissenters.join(" and ")+")":"")+".");
+  }
+  return out;
+}
+
+function pairSheet(a,b){
+  const F = (typeof FACTS !== "undefined") ? FACTS : null;
+  if(!F) return null;
+  return F.pairs[F.pairKey(a.id,b.id)] || null;
+}
+
+
 function renderPerson(id){
   const p=byId(id); if(!p){location.hash="#/";return;}
-  const r=p.result, home=personHome(p), S=home.snapshot;
+  const r=p.result, home=personHome(p), S=home.snapshot, fam=personFamilyBits(p);
   const note=p.note?`<p class="note">${esc(p.note)}</p>`:"";
   const others=FAMILY.filter(x=>x.id!==p.id).map(x=>`<a href="#/vs/${p.id}/${x.id}">${esc(x.name)}</a>`).join("");
-  const rankRow=home.ranksRow.length?`<div class="rankrow">${home.ranksRow.map(rr=>
+  const rankRow=fam.ranksRow.length?`<div class="rankrow">${fam.ranksRow.map(rr=>
     `<span class="rankchip"><span class="dot d${rr.d}"></span>${rr.d} ${rr.n} · ${ordinalStr(rr.pos)}${rr.tied?"=":""} of ${rr.of}</span>`).join("")}</div>`:"";
+  const readParas=[home.stack].concat(home.letterParas||[],[home.table,home.plan,home.pressure]).filter(Boolean);
   app.innerHTML=`${nav("person")}
   <div class="wrap">
     <div class="hero">
       <p class="eyebrow">At home</p>
       <div class="stagrow">${stags(S)}</div>
       <h1>${esc(p.name)}</h1>
-      <p class="tag">${esc(home.hero)}</p>
+      <p class="tag">${esc(home.lede||"")}</p>
       <p class="tag">${esc(lettersLabel(r))} · D ${r.N.D} · I ${r.N.I} · S ${r.N.S} · C ${r.N.C}</p>
       ${note}
     </div>
     <div class="card">
       <h2>The read</h2>
-      ${paras(home.read)}
-      ${home.generated?`<p class="small">This read is generated from the scores — a hand-written one hasn't been added for ${esc(home.name)} yet.</p>`:""}
+      ${paras(readParas)}
     </div>
-    ${home.receipts.length?`<div class="card">
-      <h2>From your own answers</h2>
-      <p class="small">Nothing in this card was written by hand. Every line is computed from the answer sheet and recomputes if the data changes.</p>
-      ${listBlock(home.receipts)}
-    </div>`:""}
     <div class="card">
       <h2>Where you sit in this family</h2>
       ${rankRow}
-      ${paras(home.famFacts)}
+      ${paras(fam.facts)}
       ${scatter2x2([p],{label:p.name+" on pace and priority"})}
       <p class="small">Fast at the top, patient at the bottom. People to the left, the plan to the right.</p>
     </div>
@@ -489,14 +537,17 @@ function renderPerson(id){
     <div class="card">
       <h2>Buttons</h2>
       <h3>What quietly drives ${esc(home.name)} crazy</h3>
-      ${listBlock(home.annoy)}
+      ${listBlock(home.hard)}
       <h3>What lights ${esc(home.name)} up</h3>
-      ${listBlock(home.light)}
+      ${listBlock(home.scenes)}
+      <h3>Pointers</h3>
+      ${listBlock(home.pointers)}
     </div>
     <div class="card">
       <h2>Living with ${esc(home.name)}</h2>
-      ${listBlock(home.living)}
+      ${listBlock(home.working)}
     </div>
+    ${home.caveat?`<div class="card"><p class="small">${esc(home.caveat)}</p></div>`:""}
     ${originalReportFold(p)}
     <div class="card noprint"><h2>Compare ${esc(home.name)} with…</h2>
       <div class="linkrow">${others}</div>
@@ -512,50 +563,61 @@ function renderPair(idA,idB){
   if(!a||!b||a.id===b.id){location.hash="#/";return;}
   const copy=pairCopy(a,b);
   const an=copy.analysis;
+  const sheet=pairSheet(a,b);
+  const movesA=(copy.pointersA||[]).map(t=>`<li>${esc(t)}</li>`).join("");
+  const movesB=(copy.pointersB||[]).map(t=>`<li>${esc(t)}</li>`).join("");
   app.innerHTML=`${nav("pair")}
   <div class="wrap">
     <div class="hero">
       <p class="eyebrow">Pairing</p>
       <h1>${esc(fname(a))} and ${esc(fname(b))}</h1>
-      <p class="tag">${esc(copy.typeLabel)}</p>
+      <p class="tag">${esc(copy.typeLabel||"")}</p>
       <p class="tag">${stags(an.A)} &nbsp;·&nbsp; ${stags(an.B)}</p>
-      ${copy.geometry?`<p class="note">${esc(copy.geometry)}</p>`:""}
     </div>
     <div class="card">
       <h2>Side by side</h2>
-      <p>${esc(copy.lede)}</p>
-      ${pairSliders(an, copy.scaleReads)}
+      <p>${esc(copy.lede||"")}</p>
+      ${pairSliders(an, copy.scaleReads||[])}
     </div>
     <div class="card">
       <h2>How the two of you work</h2>
-      ${paras(copy.read)}
-      ${copy.generated?`<p class="small">This pairing's read is generated from the numbers — a hand-written one hasn't been added yet.</p>`:""}
+      ${paras(copy.working)}
     </div>
-    ${copy.receipts.length?`<div class="card">
+    ${sheet?`<div class="card">
       <h2>Your answers, side by side</h2>
       <p class="small">Same 28 questions, both answer sheets. Computed, not composed.</p>
-      ${stripHTML(copy.strip)}
-      ${paras(copy.receipts)}
+      ${stripHTML(sheet.strip)}
+      <p>Same “most me” on ${sheet.sameMost} of 28. Identical on ${sheet.identical}. Crossed (one claimed what the other rejected) on ${sheet.clash}. Distance across the four scores: ${sheet.l1}.</p>
     </div>`:""}
     <div class="card">
       <h2>Where you're alike</h2>
-      ${paras(copy.alike)}
+      ${paras(copy.similar)}
+      ${copy.similarBlind?`<p>${esc(copy.similarBlind)}</p>`:""}
     </div>
     <div class="card">
       <h2>Where the wires cross</h2>
-      <div class="callout blue"><p><b>Reading ${esc(fname(a))}.</b> ${esc(copy.misreadA)}</p></div>
-      <div class="callout"><p><b>Reading ${esc(fname(b))}.</b> ${esc(copy.misreadB)}</p></div>
+      ${paras(copy.rubs)}
+      <div class="callout blue"><p><b>${esc(fname(a))} → ${esc(fname(b))}.</b> ${esc(copy.tipAB||"")}</p></div>
+      <div class="callout"><p><b>${esc(fname(b))} → ${esc(fname(a))}.</b> ${esc(copy.tipBA||"")}</p></div>
     </div>
     <div class="card">
       <h2>What you give each other</h2>
-      <p>${esc(copy.giveA)}</p>
-      <p>${esc(copy.giveB)}</p>
+      <p>${esc(copy.bringsA||"")}</p>
+      <p>${esc(copy.bringsB||"")}</p>
+      ${paras(copy.atHome)}
     </div>
     <div class="card">
       <h2>One move each</h2>
-      <div class="callout blue"><p><b>${esc(fname(a))}.</b> ${esc(copy.moveA)}</p></div>
-      <div class="callout"><p><b>${esc(fname(b))}.</b> ${esc(copy.moveB)}</p></div>
+      <div class="callout blue"><p><b>${esc(fname(a))}.</b></p><ul>${movesA}</ul></div>
+      <div class="callout"><p><b>${esc(fname(b))}.</b></p><ul>${movesB}</ul></div>
     </div>
+    <div class="card">
+      <h2>Talk · decide · spend time</h2>
+      <h3>Talk</h3>${listBlock(copy.talk)}
+      <h3>Decide</h3>${listBlock(copy.decide)}
+      <h3>Spend time</h3>${listBlock(copy.spendTime)}
+    </div>
+    ${copy.caveat?`<div class="card"><p class="small">${esc(copy.caveat)}</p></div>`:""}
     <div class="card">
       <h2>Both on the map</h2>
       ${scatter2x2([a,b],{label:fname(a)+" and "+fname(b)+" on pace and priority"})}
@@ -685,12 +747,17 @@ function route(){
   const raw=(location.hash||"#/").replace(/^#/,"");
   const parts=raw.split("/").filter(Boolean);
   try{window.scrollTo(0,0)}catch(e){}
-  if(parts.length===0){compareOn=false;picked=[];renderHome();return;}
-  if(parts[0]==="p"&&parts[1]){renderPerson(parts[1].toLowerCase());return;}
-  if(parts[0]==="vs"&&parts[1]&&parts[2]){renderPair(parts[1].toLowerCase(),parts[2].toLowerCase());return;}
-  if(parts[0]==="family"){renderFamily();return;}
-  if(parts[0]==="method"){renderMethod();return;}
-  renderHome();
+  try{
+    if(parts.length===0){compareOn=false;picked=[];renderHome();return;}
+    if(parts[0]==="p"&&parts[1]){renderPerson(parts[1].toLowerCase());return;}
+    if(parts[0]==="vs"&&parts[1]&&parts[2]){renderPair(parts[1].toLowerCase(),parts[2].toLowerCase());return;}
+    if(parts[0]==="family"){renderFamily();return;}
+    if(parts[0]==="method"){renderMethod();return;}
+    renderHome();
+  }catch(err){
+    console.error("Family DISC render failed", err);
+    app.innerHTML=`${nav("home")}<div class="wrap"><div class="card"><h2>Could not open that page</h2><p class="err">${esc(err&&err.message||err)}</p><p><a href="#/">Back to everyone</a></p></div></div>`;
+  }
 }
 window.addEventListener("hashchange",route);
 route();
